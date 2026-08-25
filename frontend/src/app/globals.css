@@ -19,5 +19,9 @@
 .config-actions{display:flex;align-items:center;gap:2px}
 .config-actions .icon-button{padding:6px}
 .config-actions .danger-button:hover{color:var(--coral);background:#fff0ec}
+.config-row > .nav-item{width:auto;flex:1 1 auto;min-width:0}
+.config-row > .config-actions{flex:0 0 auto;margin-inline-start:auto;min-width:max-content}
+.config-row > span:nth-child(2).config-actions{flex:0 0 auto}
+.config-row > .config-actions .icon-button{flex:0 0 auto}
 .pagination{display:flex;align-items:center;justify-content:center;gap:14px;margin-top:16px;color:var(--muted);font-size:10px}
 .pagination .secondary-button:disabled{cursor:not-allowed;opacity:.45}

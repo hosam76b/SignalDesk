@@ -4,12 +4,12 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { Activity, ArrowUpRight, Check, Database, Edit3, Eye, EyeOff, FileText, Globe2, LayoutDashboard, LogOut, Menu, PanelLeftClose, Plus, Radio, Search, Settings2, ShieldCheck, Trash2, UserCog, Users, X } from 'lucide-react'
-import { UserManagement } from './admin-views'
-import { TopicManagement } from './admin-topics'
+import { UserManagement } from './admin-users'
+import { TopicAdminHub as TopicManagement } from './topic-admin-hub'
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 type Lang = 'ar' | 'en'
-type Page = 'overview' | 'feed' | 'management' | 'topics' | 'users' | 'automation' | 'knowledge' | 'audit'
+type Page = 'overview' | 'feed' | 'management' | 'topics' | 'members' | 'users' | 'automation' | 'knowledge' | 'audit'
 type Post = { id: number; platform: string; title: string | null; content: string; author: string; scraped_at: string; severity_level: string | null; is_flagged: boolean; post_url?: string | null; media_urls?: unknown[] }
 type Stats = { total_posts: number; posts_by_platform: Record<string, number>; posts_by_severity: Record<string, number>; flagged_posts: number }
 type Role = 'super_admin' | 'topic_admin' | 'topic_monitor'

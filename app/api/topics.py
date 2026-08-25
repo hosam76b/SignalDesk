@@ -35,6 +35,16 @@ class AssignmentInput(BaseModel):
     role: str
 
 
+class TopicMemberOutput(BaseModel):
+    id: int
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SourceInput(BaseModel):
     platform: str = Field(min_length=2, max_length=50)
     name: str = Field(min_length=1, max_length=255)
@@ -171,6 +181,35 @@ def assign_user(
         db.add(UserTopic(user_id=assignment_data.user_id, topic_id=topic_id, role=assignment_data.role))
     db.commit()
     return {"topic_id": topic_id, "user_id": assignment_data.user_id, "role": assignment_data.role}
+
+
+@router.get("/{topic_id}/users", response_model=list[TopicMemberOutput])
+def list_topic_users(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
+    return db.query(User).join(UserTopic).filter(UserTopic.topic_id == topic_id).order_by(User.full_name).all()
+
+
+@router.get("/{topic_id}/available-users", response_model=list[TopicMemberOutput])
+def list_available_topic_users(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
+    assigned_ids = db.query(UserTopic.user_id).filter(UserTopic.topic_id == topic_id)
+    return db.query(User).filter(
+        User.role == "topic_monitor",
+        User.is_active.is_(True),
+        ~User.id.in_(assigned_ids),
+    ).order_by(User.full_name).all()
+
+
+@router.delete("/{topic_id}/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_topic_user(topic_id: int, user_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
+    assignment = db.query(UserTopic).filter(
+        UserTopic.topic_id == topic_id,
+        UserTopic.user_id == user_id,
+    ).first()
+    if assignment is None:
+        raise HTTPException(status_code=404, detail="Topic assignment not found")
+    if assignment.role == "topic_admin" and _.role != "super_admin":
+        raise HTTPException(status_code=403, detail="Only SuperAdmin can remove a topic administrator")
+    db.delete(assignment)
+    db.commit()
 
 
 @router.get("/{topic_id}/sources", response_model=list[SourceOutput])

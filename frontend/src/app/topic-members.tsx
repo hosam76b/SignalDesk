@@ -1,0 +1,19 @@
+'use client'
+/* eslint-disable react-hooks/set-state-in-effect */
+
+import { useEffect, useState } from 'react'
+import { UserPlus, UserRoundMinus } from 'lucide-react'
+
+type Role = 'super_admin' | 'topic_admin' | 'topic_monitor'
+type Topic = { id: number; title: string }
+type Member = { id: number; email: string; full_name: string; role: Role; is_active: boolean }
+type Request = <T>(path: string, init?: RequestInit) => Promise<T>
+
+const roleNames: Record<Role, string> = { super_admin: 'SuperAdmin', topic_admin: 'TopicAdmin', topic_monitor: 'Monitor' }
+
+export function TopicMembers({ request, role }: { request: Request; role: Role }) {
+  const [topics, setTopics] = useState<Topic[]>([]); const [topicId, setTopicId] = useState<number | null>(null); const [members, setMembers] = useState<Member[]>([]); const [available, setAvailable] = useState<Member[]>([]); const [selectedUser, setSelectedUser] = useState(''); const [error, setError] = useState('')
+  const loadTopics = async () => { try { const next = await request<Topic[]>('/api/v1/topics'); setTopics(next); setTopicId(current => current ?? next[0]?.id ?? null) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المواضيع.') } }; const loadMembers = async () => { if (!topicId) return; try { const [nextMembers, nextAvailable] = await Promise.all([request<Member[]>(`/api/v1/topics/${topicId}/users`), request<Member[]>(`/api/v1/topics/${topicId}/available-users`)]); setMembers(nextMembers); setAvailable(nextAvailable) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل أعضاء الموضوع.') } }; useEffect(() => { void loadTopics() }, []); useEffect(() => { void loadMembers() }, [topicId])
+  const assign = async () => { if (!topicId || !selectedUser) return; try { await request(`/api/v1/topics/${topicId}/assign-user`, { method: 'POST', body: JSON.stringify({ user_id: Number(selectedUser), role: 'topic_monitor' }) }); setSelectedUser(''); await loadMembers() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إسناد المراقب.') } }; const remove = async (member: Member) => { if (!topicId || !window.confirm(`إزالة ${member.full_name} من الموضوع؟`)) return; try { await request(`/api/v1/topics/${topicId}/users/${member.id}`, { method: 'DELETE' }); await loadMembers() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر إزالة الإسناد.') } }
+  return <div className="page-content"><div className="page-header"><div><p className="eyebrow">RBAC</p><h1>إسناد أعضاء المواضيع</h1><p className="subhead">حدد من يمكنه إدارة أو مراقبة كل موضوع.</p></div></div>{error && <div className="data-error">{error}</div>}<div className="panel config-list"><label>الموضوع<select value={topicId ?? ''} onChange={event => setTopicId(Number(event.target.value))}>{topics.map(topic => <option value={topic.id} key={topic.id}>{topic.title}</option>)}</select></label>{(role === 'super_admin' || role === 'topic_admin') && <div className="config-row"><select value={selectedUser} onChange={event => setSelectedUser(event.target.value)}><option value="">اختر مراقباً لإسناده</option>{available.map(user => <option value={user.id} key={user.id}>{user.full_name} · {user.email}</option>)}</select><button className="primary-button" onClick={assign} disabled={!selectedUser}><UserPlus size={15}/> إسناد مراقب</button></div>}<div className="user-table">{members.map(member => <div className="user-row" key={member.id}><div className="user-id"><span className="avatar avatar-cyan">{member.full_name[0]}</span><span><strong>{member.full_name}</strong><small>{member.email}</small></span></div><span>{roleNames[member.role]}</span><span>{member.is_active ? 'نشط' : 'متوقف'}</span>{(role === 'super_admin' || member.role === 'topic_monitor') && <button className="icon-button danger-button" aria-label="إزالة الإسناد" onClick={() => remove(member)}><UserRoundMinus size={15}/></button>}</div>)}</div></div></div>
+}
