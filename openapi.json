@@ -1,0 +1,3470 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Media Monitoring Platform",
+    "description": "Media Monitoring Platform for Detecting Child Safety/Violence Content",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Login",
+        "description": "User login endpoint.\nAuthenticates user by email and password, returns JWT token.\n\nArgs:\n    credentials (LoginRequest): Email and password.\n    db (Session): Database session.\n\nReturns:\n    TokenResponse: JWT token and user information.\n\nRaises:\n    HTTPException: If credentials are invalid or user is inactive.",
+        "operationId": "login_api_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "Get Me",
+        "description": "Get current authenticated user information.\nRequires valid JWT token in Authorization header.\n\nArgs:\n    current_user (User): Current authenticated user (from dependency).\n\nReturns:\n    UserResponse: User profile information.",
+        "operationId": "get_me_api_auth_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__auth__UserResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/users": {
+      "post": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Create User",
+        "description": "Create a new user (Admin only).\n\nArgs:\n    user_data (UserCreate): User creation data.\n    db (Session): Database session.\n    current_user (User): Current authenticated user (must be admin).\n\nReturns:\n    UserResponse: Created user information.\n\nRaises:\n    HTTPException: If user is not admin, or email already exists.",
+        "operationId": "create_user_api_users_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__users__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "List Users",
+        "description": "List all users (Admin only).\n\nArgs:\n    skip (int): Number of users to skip (pagination).\n    limit (int): Maximum number of users to return.\n    db (Session): Database session.\n    current_user (User): Current authenticated user (must be admin).\n\nReturns:\n    List[UserResponse]: List of users.\n\nRaises:\n    HTTPException: If user is not admin.",
+        "operationId": "list_users_api_users_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__users__UserResponse"
+                  },
+                  "title": "Response List Users Api Users Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/users/{user_id}": {
+      "get": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Get User",
+        "description": "Get user by ID.\nUsers can only view their own profile unless they are admins.\n\nArgs:\n    user_id (int): ID of user to retrieve.\n    db (Session): Database session.\n    current_user (User): Current authenticated user.\n\nReturns:\n    UserResponse: User information.\n\nRaises:\n    HTTPException: If user not found or no permission to view.",
+        "operationId": "get_user_api_users__user_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__users__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Update User",
+        "description": "Update user information (Admin only, or self-profile for non-admin fields).\n\nArgs:\n    user_id (int): ID of user to update.\n    user_update (UserUpdate): Fields to update.\n    db (Session): Database session.\n    current_user (User): Current authenticated user.\n\nReturns:\n    UserResponse: Updated user information.\n\nRaises:\n    HTTPException: If user not found or no permission to update.",
+        "operationId": "update_user_api_users__user_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__users__UserResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Users"
+        ],
+        "summary": "Delete User",
+        "description": "Delete a user (Admin only).\n\nArgs:\n    user_id (int): ID of user to delete.\n    db (Session): Database session.\n    current_user (User): Current authenticated user (must be admin).\n\nRaises:\n    HTTPException: If user not found or current user is not admin.",
+        "operationId": "delete_user_api_users__user_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "User Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scraper/trigger": {
+      "post": {
+        "tags": [
+          "Scraper"
+        ],
+        "summary": "Trigger Manual Scraping Cycle",
+        "description": "Manually trigger a complete scraping cycle.\n\n**Admin only operation.**\n\nScrapes all active monitored sources dynamically using native platform\nlibraries first, then Apify when configured and native ingestion fails.\n\nThe request waits for the current cycle to finish.\n\nArgs:\n    db (Session): Database session.\n    current_user (User): Authenticated administrator.\n\nReturns:\n    ScrapingResult: Statistics about the scraping operation.\n\nRaises:\n    HTTPException: If user is not admin or scraper is already running.\n\nExample:\n    ```\n    POST /api/scraper/trigger\n    Authorization: Bearer <token>\n    \n    Response:\n    {\n        \"success\": true,\n        \"total_sources\": 3,\n        \"total_posts_found\": 45,\n        \"new_posts_saved\": 38,\n        \"errors\": [],\n        \"duration_seconds\": 23.5,\n        \"sources_processed\": {...}\n    }\n    ```",
+        "operationId": "trigger_scraping_api_scraper_trigger_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrapingResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/scraper/status": {
+      "get": {
+        "tags": [
+          "Scraper"
+        ],
+        "summary": "Get Scraper Status",
+        "description": "Get the current status of the scraper.\n\n**Requires authentication.**\n\nReturns information about:\n- Whether scraping is currently running\n- Last scraping execution time\n- Current operational status\n\nArgs:\n    current_user (User): Authenticated user.\n\nReturns:\n    ScraperStatusResponse: Current scraper status.\n\nExample:\n    ```\n    GET /api/scraper/status\n    Authorization: Bearer <token>\n    \n    Response:\n    {\n        \"status\": \"idle\",\n        \"message\": \"Scraper is ready\",\n        \"last_run\": \"2026-08-21T10:30:00\",\n        \"is_running\": false\n    }\n    ```",
+        "operationId": "get_scraper_status_api_scraper_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScraperStatusResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/scraper/last-result": {
+      "get": {
+        "tags": [
+          "Scraper"
+        ],
+        "summary": "Get Last Scraping Result",
+        "description": "Get the results from the last scraping cycle.\n\n**Requires authentication.**\n\nReturns statistics from the most recent scraping operation including:\n- Number of posts found\n- Number of new posts saved\n- Processing time\n- Any errors encountered\n\nArgs:\n    current_user (User): Authenticated user.\n\nReturns:\n    ScrapingResult: Statistics from last scraping cycle.\n\nRaises:\n    HTTPException: If no scraping has been run yet.\n\nExample:\n    ```\n    GET /api/scraper/last-result\n    Authorization: Bearer <token>\n    \n    Response:\n    {\n        \"success\": true,\n        \"total_sources\": 3,\n        \"total_posts_found\": 45,\n        \"new_posts_saved\": 38,\n        ...\n    }\n    ```",
+        "operationId": "get_last_scraping_result_api_scraper_last_result_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScrapingResult"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/scraper/health": {
+      "get": {
+        "tags": [
+          "Scraper"
+        ],
+        "summary": "Scraper Health Check",
+        "description": "Health check for the scraper service.\n\n**No authentication required.**\n\nReturns:\n    Dict with health status.\n\nExample:\n    ```\n    GET /api/scraper/health\n    \n    Response:\n    {\n        \"status\": \"healthy\",\n        \"services\": {\n            \"rss\": \"operational\",\n            \"reddit\": \"operational\",\n            \"youtube\": \"operational\",\n            \"playwright\": \"operational\"\n        }\n    }\n    ```",
+        "operationId": "scraper_health_api_scraper_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/analyze-pending": {
+      "post": {
+        "tags": [
+          "AI Analysis"
+        ],
+        "summary": "Analyze Pending Posts",
+        "description": "Analyze one bounded batch of posts missing AI evaluation.",
+        "operationId": "analyze_pending_posts_api_ai_analyze_pending_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "batch_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Batch Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnalysisResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/ai/flagged-posts": {
+      "get": {
+        "tags": [
+          "AI Analysis"
+        ],
+        "summary": "Get Flagged Posts",
+        "description": "Retrieve flagged posts and posts with high or critical severity.",
+        "operationId": "get_flagged_posts_api_ai_flagged_posts_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "severity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Severity"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FlaggedPostsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/data/posts/latest": {
+      "get": {
+        "tags": [
+          "Data Integration"
+        ],
+        "summary": "Latest Posts",
+        "description": "Return recently scraped posts for polling consumers.",
+        "operationId": "latest_posts_api_data_posts_latest_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Since"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PostExport"
+                  },
+                  "title": "Response Latest Posts Api Data Posts Latest Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/posts/{post_id}/analysis": {
+      "patch": {
+        "tags": [
+          "Data Integration"
+        ],
+        "summary": "Update Post Analysis",
+        "description": "Persist externally generated analysis for one ingested post.",
+        "operationId": "update_post_analysis_api_posts__post_id__analysis_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "post_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Post Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostAnalysisUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PostExport"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/webhooks/post-ingested": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "summary": "Post Ingested Webhook",
+        "description": "Forward a post batch to the configured n8n/Hermes webhook.",
+        "operationId": "post_ingested_webhook_api_webhooks_post_ingested_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostIngestedRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/dashboard/stats": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Dashboard Stats",
+        "description": "Return total, platform, severity, and flagged-post counts.",
+        "operationId": "get_dashboard_stats_api_dashboard_stats_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardStatsResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/dashboard/recent-activity": {
+      "get": {
+        "tags": [
+          "Dashboard"
+        ],
+        "summary": "Get Recent Activity",
+        "description": "Return the 15 most recently ingested posts.",
+        "operationId": "get_recent_activity_api_dashboard_recent_activity_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RecentActivityPost"
+                  },
+                  "type": "array",
+                  "title": "Response Get Recent Activity Api Dashboard Recent Activity Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/monitoring/sources": {
+      "get": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "List Sources",
+        "description": "List configured monitored sources.",
+        "operationId": "list_sources_api_monitoring_sources_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__monitoring__SourceOutput"
+                  },
+                  "title": "Response List Sources Api Monitoring Sources Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Create Source",
+        "description": "Create a monitored source.",
+        "operationId": "create_source_api_monitoring_sources_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__monitoring__SourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__monitoring__SourceOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitoring/sources/{source_id}": {
+      "patch": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Update Source",
+        "description": "Update a monitored source.",
+        "operationId": "update_source_api_monitoring_sources__source_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__monitoring__SourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__monitoring__SourceOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Delete Source",
+        "description": "Delete a monitored source and its posts through the FK cascade.",
+        "operationId": "delete_source_api_monitoring_sources__source_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitoring/keywords": {
+      "get": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "List Keywords",
+        "description": "List configured keyword rules.",
+        "operationId": "list_keywords_api_monitoring_keywords_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__monitoring__KeywordOutput"
+                  },
+                  "title": "Response List Keywords Api Monitoring Keywords Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Create Keyword",
+        "description": "Create a keyword rule.",
+        "operationId": "create_keyword_api_monitoring_keywords_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__monitoring__KeywordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__monitoring__KeywordOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/monitoring/keywords/{keyword_id}": {
+      "patch": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Update Keyword",
+        "description": "Update a keyword rule.",
+        "operationId": "update_keyword_api_monitoring_keywords__keyword_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "keyword_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Keyword Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__monitoring__KeywordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__monitoring__KeywordOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Monitoring Configuration"
+        ],
+        "summary": "Delete Keyword",
+        "description": "Delete a keyword rule.",
+        "operationId": "delete_keyword_api_monitoring_keywords__keyword_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "keyword_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Keyword Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics": {
+      "get": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "List Topics",
+        "operationId": "list_topics_api_v1_topics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopicOutput"
+                  },
+                  "type": "array",
+                  "title": "Response List Topics Api V1 Topics Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Create Topic",
+        "operationId": "create_topic_api_v1_topics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopicInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/topics/{topic_id}/assign-user": {
+      "post": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Assign User",
+        "operationId": "assign_user_api_v1_topics__topic_id__assign_user_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssignmentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/sources": {
+      "get": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "List Sources",
+        "operationId": "list_sources_api_v1_topics__topic_id__sources_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__topics__SourceOutput"
+                  },
+                  "title": "Response List Sources Api V1 Topics  Topic Id  Sources Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Create Source",
+        "operationId": "create_source_api_v1_topics__topic_id__sources_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__topics__SourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__topics__SourceOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/sources/{source_id}": {
+      "put": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Update Source",
+        "operationId": "update_source_api_v1_topics__topic_id__sources__source_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__topics__SourceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__topics__SourceOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Delete Source",
+        "operationId": "delete_source_api_v1_topics__topic_id__sources__source_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/sources/{source_id}/toggle": {
+      "patch": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Toggle Source",
+        "operationId": "toggle_source_api_v1_topics__topic_id__sources__source_id__toggle_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Source Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__topics__SourceOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/keywords": {
+      "get": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "List Keywords",
+        "operationId": "list_keywords_api_v1_topics__topic_id__keywords_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/app__api__topics__KeywordOutput"
+                  },
+                  "title": "Response List Keywords Api V1 Topics  Topic Id  Keywords Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Create Keyword",
+        "operationId": "create_keyword_api_v1_topics__topic_id__keywords_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__topics__KeywordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__topics__KeywordOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/keywords/{keyword_id}": {
+      "put": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Update Keyword",
+        "operationId": "update_keyword_api_v1_topics__topic_id__keywords__keyword_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "keyword_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Keyword Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/app__api__topics__KeywordInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/app__api__topics__KeywordOutput"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Delete Keyword",
+        "operationId": "delete_keyword_api_v1_topics__topic_id__keywords__keyword_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "keyword_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Keyword Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/news": {
+      "get": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "List News",
+        "operationId": "list_news_api_v1_topics__topic_id__news_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Skip"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/NewsOutput"
+                  },
+                  "title": "Response List News Api V1 Topics  Topic Id  News Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/topics/{topic_id}/stats": {
+      "get": {
+        "tags": [
+          "Topics"
+        ],
+        "summary": "Topic Stats",
+        "operationId": "topic_stats_api_v1_topics__topic_id__stats_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "topic_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Topic Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Root",
+        "description": "Root health check endpoint.",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health Check",
+        "description": "Detailed health check endpoint.",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AnalysisResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "processed": {
+            "type": "integer",
+            "title": "Processed"
+          },
+          "analyzed": {
+            "type": "integer",
+            "title": "Analyzed"
+          },
+          "updated": {
+            "type": "integer",
+            "title": "Updated"
+          },
+          "failed": {
+            "type": "integer",
+            "title": "Failed"
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Errors"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "processed",
+          "analyzed",
+          "updated",
+          "failed",
+          "errors",
+          "duration_seconds"
+        ],
+        "title": "AnalysisResponse",
+        "description": "Summary of a batch analysis operation."
+      },
+      "AssignmentInput": {
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "role"
+        ],
+        "title": "AssignmentInput"
+      },
+      "DashboardStatsResponse": {
+        "properties": {
+          "total_posts": {
+            "type": "integer",
+            "title": "Total Posts"
+          },
+          "posts_by_platform": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Posts By Platform"
+          },
+          "posts_by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Posts By Severity"
+          },
+          "flagged_posts": {
+            "type": "integer",
+            "title": "Flagged Posts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_posts",
+          "posts_by_platform",
+          "posts_by_severity",
+          "flagged_posts"
+        ],
+        "title": "DashboardStatsResponse",
+        "description": "Aggregated counts used by the dashboard."
+      },
+      "FlaggedPostResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "source_id": {
+            "type": "integer",
+            "title": "Source Id"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "post_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post Url"
+          },
+          "published_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Published At"
+          },
+          "scraped_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scraped At"
+          },
+          "severity_level": {
+            "type": "string",
+            "title": "Severity Level"
+          },
+          "violence_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violence Category"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary"
+          },
+          "is_flagged": {
+            "type": "boolean",
+            "title": "Is Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "source",
+          "source_id",
+          "platform",
+          "author",
+          "content",
+          "post_url",
+          "published_at",
+          "scraped_at",
+          "severity_level",
+          "violence_category",
+          "ai_summary",
+          "is_flagged"
+        ],
+        "title": "FlaggedPostResponse",
+        "description": "Safe analyst-facing representation of an evaluated post."
+      },
+      "FlaggedPostsResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "total_count": {
+            "type": "integer",
+            "title": "Total Count"
+          },
+          "returned": {
+            "type": "integer",
+            "title": "Returned"
+          },
+          "limit": {
+            "type": "integer",
+            "title": "Limit"
+          },
+          "offset": {
+            "type": "integer",
+            "title": "Offset"
+          },
+          "posts": {
+            "items": {
+              "$ref": "#/components/schemas/FlaggedPostResponse"
+            },
+            "type": "array",
+            "title": "Posts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "total_count",
+          "returned",
+          "limit",
+          "offset",
+          "posts"
+        ],
+        "title": "FlaggedPostsResponse",
+        "description": "Paginated flagged-post response."
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "description": "Request model for login endpoint.",
+        "example": {
+          "email": "admin@example.com",
+          "password": "admin123"
+        }
+      },
+      "NewsOutput": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          },
+          "source_id": {
+            "type": "integer",
+            "title": "Source Id"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "scraped_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scraped At"
+          },
+          "severity_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Level"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "topic_id",
+          "source_id",
+          "platform",
+          "author",
+          "content",
+          "published_at",
+          "scraped_at",
+          "severity_level"
+        ],
+        "title": "NewsOutput"
+      },
+      "PostAnalysisUpdate": {
+        "properties": {
+          "severity_level": {
+            "type": "string",
+            "enum": [
+              "low",
+              "medium",
+              "high",
+              "critical"
+            ],
+            "title": "Severity Level"
+          },
+          "ai_summary": {
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1,
+            "title": "Ai Summary"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Tags"
+          },
+          "is_flagged": {
+            "type": "boolean",
+            "title": "Is Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "severity_level",
+          "ai_summary",
+          "is_flagged"
+        ],
+        "title": "PostAnalysisUpdate",
+        "description": "Analysis result submitted by an external automation workflow."
+      },
+      "PostExport": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "source_id": {
+            "type": "integer",
+            "title": "Source Id"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "scraped_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scraped At"
+          },
+          "post_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post Url"
+          },
+          "media_urls": {
+            "items": {},
+            "type": "array",
+            "title": "Media Urls"
+          },
+          "raw_metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw Metadata"
+          },
+          "violence_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violence Category"
+          },
+          "severity_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Level"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "is_flagged": {
+            "type": "boolean",
+            "title": "Is Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "platform",
+          "source_id",
+          "source_url",
+          "title",
+          "content",
+          "author",
+          "published_at",
+          "scraped_at",
+          "post_url",
+          "violence_category",
+          "severity_level",
+          "ai_summary",
+          "is_flagged"
+        ],
+        "title": "PostExport",
+        "description": "Stable post contract for n8n, Hermes, and custom consumers."
+      },
+      "PostIngestedRequest": {
+        "properties": {
+          "post_ids": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "maxItems": 500,
+            "title": "Post Ids"
+          }
+        },
+        "type": "object",
+        "title": "PostIngestedRequest",
+        "description": "Optional explicit batch payload for webhook delivery."
+      },
+      "RecentActivityPost": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "external_id": {
+            "type": "string",
+            "title": "External Id"
+          },
+          "platform": {
+            "type": "string",
+            "title": "Platform"
+          },
+          "source_id": {
+            "type": "integer",
+            "title": "Source Id"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "author": {
+            "type": "string",
+            "title": "Author"
+          },
+          "published_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Published At"
+          },
+          "scraped_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scraped At"
+          },
+          "post_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Post Url"
+          },
+          "media_urls": {
+            "items": {},
+            "type": "array",
+            "title": "Media Urls"
+          },
+          "raw_metadata": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Raw Metadata"
+          },
+          "violence_category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Violence Category"
+          },
+          "severity_level": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity Level"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tags"
+          },
+          "is_flagged": {
+            "type": "boolean",
+            "title": "Is Flagged"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "external_id",
+          "platform",
+          "source_id",
+          "content",
+          "author",
+          "published_at",
+          "scraped_at",
+          "is_flagged"
+        ],
+        "title": "RecentActivityPost",
+        "description": "Standard post fields returned by the recent activity feed."
+      },
+      "ScraperStatusResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "last_run": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Last Run"
+          },
+          "is_running": {
+            "type": "boolean",
+            "title": "Is Running"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "message",
+          "is_running"
+        ],
+        "title": "ScraperStatusResponse",
+        "description": "Response model for scraper status.",
+        "example": {
+          "is_running": false,
+          "last_run": "2026-08-21T10:30:00",
+          "message": "Scraper is ready",
+          "status": "idle"
+        }
+      },
+      "ScrapingResult": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "total_sources": {
+            "type": "integer",
+            "title": "Total Sources"
+          },
+          "total_posts_found": {
+            "type": "integer",
+            "title": "Total Posts Found"
+          },
+          "new_posts_saved": {
+            "type": "integer",
+            "title": "New Posts Saved"
+          },
+          "errors": {
+            "items": {},
+            "type": "array",
+            "title": "Errors"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "title": "Duration Seconds"
+          },
+          "sources_processed": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Sources Processed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "total_sources",
+          "total_posts_found",
+          "new_posts_saved",
+          "errors",
+          "duration_seconds",
+          "sources_processed"
+        ],
+        "title": "ScrapingResult",
+        "description": "Response model for scraping operation.",
+        "example": {
+          "duration_seconds": 23.5,
+          "errors": [],
+          "new_posts_saved": 38,
+          "sources_processed": {
+            "reddit": {
+              "posts_found": 20,
+              "posts_saved": 18,
+              "sources": 1
+            },
+            "rss": {
+              "posts_found": 15,
+              "posts_saved": 15,
+              "sources": 1
+            },
+            "youtube": {
+              "posts_found": 10,
+              "posts_saved": 5,
+              "sources": 1
+            }
+          },
+          "success": true,
+          "total_posts_found": 45,
+          "total_sources": 3
+        }
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type"
+          },
+          "user_id": {
+            "type": "integer",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "user_id",
+          "email",
+          "full_name",
+          "role"
+        ],
+        "title": "TokenResponse",
+        "description": "Response model for login endpoint.",
+        "example": {
+          "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+          "email": "admin@example.com",
+          "full_name": "Administrator",
+          "role": "super_admin",
+          "token_type": "bearer",
+          "user_id": 1
+        }
+      },
+      "TopicInput": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "TopicInput"
+      },
+      "TopicOutput": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "created_by_id": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "id",
+          "created_by_id",
+          "created_at"
+        ],
+        "title": "TopicOutput"
+      },
+      "UserCreate": {
+        "properties": {
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "password": {
+            "type": "string",
+            "title": "Password"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role",
+            "default": "topic_monitor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "email",
+          "password",
+          "full_name"
+        ],
+        "title": "UserCreate",
+        "description": "Request model for creating a new user.",
+        "example": {
+          "email": "analyst@example.com",
+          "full_name": "John Analyst",
+          "password": "secure_password",
+          "role": "topic_monitor"
+        }
+      },
+      "UserUpdate": {
+        "properties": {
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "title": "UserUpdate",
+        "description": "Request model for updating user information.",
+        "example": {
+          "full_name": "John Updated",
+          "is_active": true,
+          "role": "super_admin"
+        }
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "WebhookResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success"
+          },
+          "delivered": {
+            "type": "boolean",
+            "title": "Delivered"
+          },
+          "status_code": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Code"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "delivered"
+        ],
+        "title": "WebhookResponse",
+        "description": "Webhook delivery result."
+      },
+      "app__api__auth__UserResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "role",
+          "is_active"
+        ],
+        "title": "UserResponse",
+        "description": "Response model for user information.",
+        "example": {
+          "email": "admin@example.com",
+          "full_name": "Administrator",
+          "id": 1,
+          "is_active": true,
+          "role": "super_admin"
+        }
+      },
+      "app__api__monitoring__KeywordInput": {
+        "properties": {
+          "word_or_phrase": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Word Or Phrase"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category",
+            "default": "general"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_or_phrase"
+        ],
+        "title": "KeywordInput",
+        "description": "Keyword creation/update payload."
+      },
+      "app__api__monitoring__KeywordOutput": {
+        "properties": {
+          "word_or_phrase": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Word Or Phrase"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category",
+            "default": "general"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_or_phrase",
+          "id",
+          "topic_id"
+        ],
+        "title": "KeywordOutput",
+        "description": "Keyword response payload."
+      },
+      "app__api__monitoring__SourceInput": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Platform"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "url_or_handle": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Url Or Handle"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "name",
+          "url_or_handle"
+        ],
+        "title": "SourceInput",
+        "description": "Source creation/update payload."
+      },
+      "app__api__monitoring__SourceOutput": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Platform"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "url_or_handle": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Url Or Handle"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          },
+          "last_scraped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scraped At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "name",
+          "url_or_handle",
+          "id",
+          "topic_id"
+        ],
+        "title": "SourceOutput",
+        "description": "Source response payload."
+      },
+      "app__api__topics__KeywordInput": {
+        "properties": {
+          "word_or_phrase": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Word Or Phrase"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category",
+            "default": "general"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_or_phrase"
+        ],
+        "title": "KeywordInput"
+      },
+      "app__api__topics__KeywordOutput": {
+        "properties": {
+          "word_or_phrase": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Word Or Phrase"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Category",
+            "default": "general"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "word_or_phrase",
+          "id",
+          "topic_id"
+        ],
+        "title": "KeywordOutput"
+      },
+      "app__api__topics__SourceInput": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Platform"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "url_or_handle": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Url Or Handle"
+          },
+          "target_type": {
+            "type": "string",
+            "maxLength": 30,
+            "title": "Target Type",
+            "default": "url"
+          },
+          "apify_actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apify Actor Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "name",
+          "url_or_handle"
+        ],
+        "title": "SourceInput"
+      },
+      "app__api__topics__SourceOutput": {
+        "properties": {
+          "platform": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 2,
+            "title": "Platform"
+          },
+          "name": {
+            "type": "string",
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name"
+          },
+          "url_or_handle": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Url Or Handle"
+          },
+          "target_type": {
+            "type": "string",
+            "maxLength": 30,
+            "title": "Target Type",
+            "default": "url"
+          },
+          "apify_actor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 255
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Apify Actor Id"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          },
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "topic_id": {
+            "type": "integer",
+            "title": "Topic Id"
+          },
+          "last_scraped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Scraped At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "platform",
+          "name",
+          "url_or_handle",
+          "id",
+          "topic_id",
+          "status"
+        ],
+        "title": "SourceOutput"
+      },
+      "app__api__users__UserResponse": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "full_name": {
+            "type": "string",
+            "title": "Full Name"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "email",
+          "full_name",
+          "role",
+          "is_active"
+        ],
+        "title": "UserResponse",
+        "description": "Response model for user information."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "security": [
+    {
+      "HTTPBearer": []
+    }
+  ]
+}
