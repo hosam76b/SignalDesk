@@ -48,6 +48,10 @@ class RecentActivityPost(BaseModel):
     ai_summary: str | None = None
     tags: list[str] = Field(default_factory=list)
     is_flagged: bool
+    is_important: bool
+    is_dangerous: bool
+    sentiment: str | None = None
+    sentiment_score: int | None = None
 
     @classmethod
     def from_post(cls, post: Post) -> "RecentActivityPost":
@@ -71,6 +75,10 @@ class RecentActivityPost(BaseModel):
             ai_summary=post.ai_summary,
             tags=post.tags if isinstance(post.tags, list) else [],
             is_flagged=post.is_flagged,
+            is_important=post.is_important,
+            is_dangerous=post.is_dangerous,
+            sentiment=post.sentiment,
+            sentiment_score=post.sentiment_score,
         )
 
 

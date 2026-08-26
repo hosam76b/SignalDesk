@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_admin_user, get_current_topic_admin, get_current_topic_user, get_current_user
 from app.core.security import hash_password
 from app.db.session import get_db
-from app.models import Keyword, MonitoredSource, Post, Topic, User, UserTopic
+from app.models import AuditLog, Keyword, MonitoredSource, Post, Topic, User, UserTopic
+from app.services.audit_service import record_audit
+from app.services.scraper_service import SUPPORTED_PLATFORMS
 
 router = APIRouter(prefix="/api/v1/topics", tags=["Topics"])
 
@@ -52,6 +54,14 @@ class SourceInput(BaseModel):
     target_type: str = Field(default="url", max_length=30)
     apify_actor_id: str | None = Field(default=None, max_length=255)
     is_active: bool = True
+
+    @field_validator("platform")
+    @classmethod
+    def validate_platform(cls, value: str) -> str:
+        normalized = value.lower().strip()
+        if normalized not in SUPPORTED_PLATFORMS:
+            raise ValueError(f"Unsupported platform: {normalized}")
+        return normalized
 
     @field_validator("platform", "target_type", "url_or_handle", mode="before")
     @classmethod
@@ -108,6 +118,8 @@ class NewsOutput(BaseModel):
     published_at: datetime
     scraped_at: datetime
     severity_level: str | None
+    is_important: bool
+    is_dangerous: bool
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -307,6 +319,38 @@ def list_news(
     _: User = Depends(get_current_topic_user),
 ):
     return db.query(Post).filter(Post.topic_id == topic_id).order_by(Post.published_at.desc()).offset(skip).limit(limit).all()
+
+
+class PriorityInput(BaseModel):
+    is_important: bool = False
+    is_dangerous: bool = False
+
+
+@router.patch("/{topic_id}/news/{post_id}/priority", response_model=NewsOutput)
+def update_news_priority(
+    topic_id: int,
+    post_id: int,
+    priority: PriorityInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_topic_user),
+):
+    post = db.query(Post).filter(Post.id == post_id, Post.topic_id == topic_id).first()
+    if post is None:
+        raise HTTPException(status_code=404, detail="News item not found")
+    post.is_important = priority.is_important
+    post.is_dangerous = priority.is_dangerous
+    record_audit(
+        db,
+        user_id=current_user.id,
+        topic_id=topic_id,
+        post_id=post_id,
+        action="post_priority_updated",
+        entity_type="post",
+        details={"is_important": post.is_important, "is_dangerous": post.is_dangerous},
+    )
+    db.commit()
+    db.refresh(post)
+    return post
 
 
 @router.get("/{topic_id}/stats")

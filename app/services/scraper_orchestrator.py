@@ -4,6 +4,7 @@ Coordinates all scraping services and manages data integration.
 """
 
 import logging
+from hashlib import md5
 from typing import List, Dict, Any, Tuple
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
@@ -271,10 +272,15 @@ class ScraperOrchestrator:
                 # Check for duplicates
                 external_id = post_data.get("external_id", "")
                 post_url = post_data.get("post_url", "")
+                content = post_data.get("content", "")[:5000]
+                fingerprint = md5(
+                    f"{content}|{post_data.get('author', 'Unknown')}|{post_url}".encode("utf-8")
+                ).hexdigest()
 
-                if external_id or post_url:
+                if external_id or post_url or fingerprint:
                     existing = db.query(Post).filter(
-                        (Post.external_id == external_id) | (Post.post_url == post_url)
+                        Post.source_id == source.id,
+                        ((Post.external_id == external_id) | (Post.post_url == post_url) | (Post.content_fingerprint == fingerprint)),
                     ).first()
 
                     if existing:
@@ -289,7 +295,8 @@ class ScraperOrchestrator:
                     platform=post_data.get("platform", source.platform),
                     author=post_data.get("author", "Unknown"),
                     title=post_data.get("title", ""),
-                    content=post_data.get("content", "")[:5000],
+                    content=content,
+                    content_fingerprint=fingerprint,
                     media_urls=post_data.get("media_urls", []),
                     post_url=post_data.get("post_url", ""),
                     source_url=post_data.get("source_url", source.url_or_handle),

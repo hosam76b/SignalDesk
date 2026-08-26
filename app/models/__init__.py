@@ -11,8 +11,9 @@ from app.models.post import Post
 from app.models.report import Report
 from app.models.topic import Topic, UserTopic
 from app.models.enums import TopicRole, UserRole
+from app.models.audit import AuditLog
 
 __all__ = [
 	"Base", "User", "MonitoredSource", "Keyword", "Post", "Report",
-	"Topic", "UserTopic", "UserRole", "TopicRole",
+	"Topic", "UserTopic", "UserRole", "TopicRole", "AuditLog",
 ]

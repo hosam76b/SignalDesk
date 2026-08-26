@@ -18,6 +18,7 @@ from app.api import webhooks as webhook_routes
 from app.api import dashboard as dashboard_routes
 from app.api import monitoring as monitoring_routes
 from app.api import topics as topics_routes
+from app.api import audit as audit_routes
 from config import settings
 
 # Import all models to register them with SQLAlchemy
@@ -80,6 +81,7 @@ app.include_router(webhook_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(monitoring_routes.router)
 app.include_router(topics_routes.router)
+app.include_router(audit_routes.router)
 
 
 def custom_openapi() -> dict:

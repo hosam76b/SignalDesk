@@ -6,6 +6,7 @@ Represents scraped content/posts from monitored sources with AI analysis results
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
+from hashlib import md5
 from app.db.session import Base
 
 
@@ -57,6 +58,12 @@ class Post(Base):
     ai_summary = Column(Text, nullable=True)
     raw_ai_response = Column(JSON, nullable=True)  # Complete AI response stored as JSON
     is_flagged = Column(Boolean, default=False, nullable=False)
+    is_important = Column(Boolean, default=False, nullable=False, index=True)
+    is_dangerous = Column(Boolean, default=False, nullable=False, index=True)
+    content_fingerprint = Column(String(32), nullable=True, index=True)
+    sentiment = Column(String(20), nullable=True, index=True)
+    sentiment_score = Column(Integer, nullable=True)
+    entities = Column(JSON, nullable=True)
 
     # Relationships
     source = relationship("MonitoredSource", back_populates="posts")

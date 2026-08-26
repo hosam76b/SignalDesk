@@ -7,7 +7,7 @@ import logging
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 from app.db.session import Base, engine, SessionLocal
-from app.models import Topic, User  # This import triggers all model registrations
+from app.models import AuditLog, Topic, User  # This import triggers all model registrations
 from app.core.security import hash_password
 
 logger = logging.getLogger(__name__)
@@ -63,6 +63,16 @@ def migrate_topic_schema():
                     connection.execute(text(f"ALTER TABLE monitored_sources ADD COLUMN {column_name} {column_type}"))
                     if default_value is not None:
                         connection.execute(text(f"UPDATE monitored_sources SET {column_name} = :value WHERE {column_name} IS NULL"), {"value": default_value})
+
+        if "posts" in existing_tables:
+            post_columns = {column["name"] for column in inspect(connection).get_columns("posts")}
+            for column_name in ("is_important", "is_dangerous", "content_fingerprint", "sentiment", "sentiment_score", "entities"):
+                if column_name not in post_columns:
+                    column_type = {"is_important": "BOOLEAN DEFAULT FALSE", "is_dangerous": "BOOLEAN DEFAULT FALSE", "content_fingerprint": "VARCHAR(32)", "sentiment": "VARCHAR(20)", "sentiment_score": "INTEGER", "entities": "JSON"}[column_name]
+                    connection.execute(text(f"ALTER TABLE posts ADD COLUMN {column_name} {column_type}"))
+
+        if "audit_logs" not in existing_tables:
+            Base.metadata.create_all(bind=connection, tables=[AuditLog.__table__])
 
         if "users" in existing_tables:
             connection.execute(text("UPDATE users SET role = 'super_admin' WHERE role = 'admin'"))

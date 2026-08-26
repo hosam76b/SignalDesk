@@ -21,6 +21,7 @@ class PostExport(BaseModel):
     """Stable post contract for n8n, Hermes, and custom consumers."""
 
     id: int
+    topic_id: int
     external_id: str
     platform: str
     source_id: int
@@ -38,12 +39,15 @@ class PostExport(BaseModel):
     ai_summary: str | None
     tags: list[str] = Field(default_factory=list)
     is_flagged: bool
+    is_important: bool
+    is_dangerous: bool
 
     @classmethod
     def from_post(cls, post: Post) -> "PostExport":
         metadata = post.raw_metadata if isinstance(post.raw_metadata, dict) else {}
         return cls(
             id=post.id,
+            topic_id=post.topic_id,
             external_id=post.external_id,
             platform=post.platform,
             source_id=post.source_id,
@@ -61,6 +65,8 @@ class PostExport(BaseModel):
             ai_summary=post.ai_summary,
             tags=post.tags if isinstance(post.tags, list) else [],
             is_flagged=post.is_flagged,
+            is_important=post.is_important,
+            is_dangerous=post.is_dangerous,
         )
 
 

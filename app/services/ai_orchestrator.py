@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.post import Post
 from app.services.ai_service import analyze_post_content
+from app.services.sentiment import analyze_sentiment
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
 
     for post in posts:
         try:
+            local_sentiment = analyze_sentiment(post.content)
+            post.sentiment = local_sentiment["label"]
+            post.sentiment_score = int(float(local_sentiment["score"]) * 100)
             analysis = analyze_post_content(post.content)
             if not analysis["success"]:
                 result["failed"] += 1

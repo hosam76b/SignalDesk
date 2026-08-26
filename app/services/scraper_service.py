@@ -16,8 +16,14 @@ import httpx
 
 from config import settings
 from app.services.apify_service import ApifyService
+from app.services.meta_service import MetaGraphService
 
 logger = logging.getLogger(__name__)
+
+SUPPORTED_PLATFORMS = {
+    "rss", "reddit", "youtube", "facebook", "instagram", "x", "twitter", "tiktok", "threads",
+}
+APIFY_PLATFORMS = {"facebook", "instagram", "x", "twitter", "tiktok", "threads"}
 
 
 class ScraperService:
@@ -25,6 +31,7 @@ class ScraperService:
 
     def __init__(self) -> None:
         self.apify = ApifyService()
+        self.meta = MetaGraphService()
 
     async def scrape_source(
         self,
@@ -44,11 +51,19 @@ class ScraperService:
             "facebook": self.scrape_facebook,
             "instagram": self.scrape_instagram,
             "x": self.scrape_x,
+            "twitter": self.scrape_x,
+            "tiktok": self.scrape_x,
+            "threads": self.scrape_x,
         }
         if platform not in native_methods:
             return {"success": False, "posts": [], "error": f"Unsupported platform: {platform}"}
 
-        if platform == "facebook" and self.apify.is_configured:
+        if platform == "facebook" and self.meta.is_configured:
+            meta_result = await self.meta.fetch_page_posts(target)
+            if meta_result.get("success"):
+                return meta_result
+            logger.warning("Meta Graph API failed; falling back to Apify: %s", meta_result.get("error"))
+        if platform in APIFY_PLATFORMS and self.apify.is_configured:
             return await self.apify.scrape_social_source(
                 platform,
                 target,

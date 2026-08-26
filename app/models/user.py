@@ -45,6 +45,7 @@ class User(Base):
     reports = relationship("Report", back_populates="author", cascade="all, delete-orphan")
     created_topics = relationship("Topic", back_populates="created_by")
     user_topics = relationship("UserTopic", back_populates="user", cascade="all, delete-orphan")
+    audit_logs = relationship("AuditLog", back_populates="user")
 
     @property
     def topic_ids(self) -> list[int]:

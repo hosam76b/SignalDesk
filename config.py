@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     apify_api_token: str = ""
     apify_actor_id: str = "apify/facebook-posts-scraper"
     facebook_cookies_file: str = ""
+    meta_access_token: str = ""
+    meta_graph_api_version: str = "v21.0"
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
     post_ingested_webhook_url: str = ""
 
     # Application Configuration
