@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { WorkspaceSettingsHost } from "./workspace-settings-host";
 
 export const metadata: Metadata = {
   title: "Signaldesk | Intelligence workspace",
@@ -9,7 +10,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
-      <body>{children}</body>
+      <body>{children}<WorkspaceSettingsHost /></body>
     </html>
   );
 }
