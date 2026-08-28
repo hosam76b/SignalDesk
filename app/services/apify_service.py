@@ -52,7 +52,14 @@ class ApifyService:
                 def run_actor() -> list[dict[str, Any]]:
                     client = ApifyClient(self.api_token)
                     run = client.actor(actor_id or self.actor_id).call(run_input=payload)
-                    return list(client.dataset(run["defaultDatasetId"]).iterate_items())
+                    dataset_id = (
+                        getattr(run, "default_dataset_id", None)
+                        or getattr(run, "defaultDatasetId", None)
+                        or (run.get("defaultDatasetId") if isinstance(run, Mapping) else None)
+                    )
+                    if not dataset_id:
+                        raise ValueError("Apify run did not return a dataset ID")
+                    return list(client.dataset(dataset_id).iterate_items())
 
                 data = await asyncio.to_thread(run_actor)
             if not isinstance(data, list):

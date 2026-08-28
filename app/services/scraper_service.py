@@ -17,13 +17,18 @@ import httpx
 from config import settings
 from app.services.apify_service import ApifyService
 from app.services.meta_service import MetaGraphService
+from app.services.telegram_service import telegram_adapter
 
 logger = logging.getLogger(__name__)
 
 SUPPORTED_PLATFORMS = {
-    "rss", "reddit", "youtube", "facebook", "instagram", "x", "twitter", "tiktok", "threads",
+    "rss", "reddit", "youtube", "facebook", "instagram", "x", "twitter", "tiktok", "threads", "telegram",
 }
 APIFY_PLATFORMS = {"facebook", "instagram", "x", "twitter", "tiktok", "threads"}
+
+
+class SourceConfigurationError(ValueError):
+    """Raised when a source cannot be attempted with the current configuration."""
 
 
 class ScraperService:
@@ -44,6 +49,7 @@ class ScraperService:
     ) -> dict[str, Any]:
         """Scrape one source and return normalized posts plus errors."""
         platform = platform.lower().strip()
+        self._validate_source_configuration(platform, target)
         native_methods = {
             "rss": self.scrape_rss,
             "reddit": self.scrape_reddit,
@@ -55,8 +61,11 @@ class ScraperService:
             "tiktok": self.scrape_x,
             "threads": self.scrape_x,
         }
-        if platform not in native_methods:
+        if platform not in native_methods and platform != "telegram":
             return {"success": False, "posts": [], "error": f"Unsupported platform: {platform}"}
+
+        if platform == "telegram":
+            return await self.scrape_telegram(target, keywords or [])
 
         if platform == "facebook" and self.meta.is_configured:
             meta_result = await self.meta.fetch_page_posts(target)
@@ -78,7 +87,9 @@ class ScraperService:
             return {"success": True, "posts": posts, "error": None, "method": "native"}
         except Exception as exc:
             logger.exception("Native %s scraping failed for %s", platform, target)
-            if self.apify.is_configured:
+            if self.apify.is_configured and (
+                platform in APIFY_PLATFORMS or use_apify or apify_actor_id
+            ):
                 logger.info("Falling back to Apify for %s", target)
                 fallback = await self.apify.scrape_social_source(platform, target)
                 if fallback.get("success"):
@@ -90,6 +101,22 @@ class ScraperService:
                     "method": "apify",
                 }
             return {"success": False, "posts": [], "error": str(exc), "method": "native"}
+
+    async def scrape_telegram(self, target: str, keywords: list[str] | None = None) -> dict[str, Any]:
+        """Fetch posts from a public or private Telegram channel."""
+        return await telegram_adapter.fetch_channel_posts(target, limit=50, keywords=keywords)
+
+    @staticmethod
+    def _validate_source_configuration(platform: str, target: str) -> None:
+        """Reject invalid targets and unavailable credentials before network work."""
+        target = (target or "").strip()
+        if platform == "telegram" and not target:
+            raise SourceConfigurationError("اسم قناة أو رابط Telegram مطلوب")
+        if platform == "rss" and not target.lower().startswith(("http://", "https://")):
+            raise SourceConfigurationError("رابط RSS غير صالح: يجب أن يبدأ بـ http:// أو https://")
+        if platform in APIFY_PLATFORMS and not settings.apify_api_token:
+            if not (platform == "facebook" and settings.meta_access_token):
+                raise SourceConfigurationError(f"لا يوجد APIFY_API_TOKEN لمنصة {platform}")
 
     def scrape_rss(self, url: str, _: list[str] | None = None) -> list[dict[str, Any]]:
         """Fetch and parse RSS or Atom entries after removing invalid XML characters."""

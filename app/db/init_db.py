@@ -58,6 +58,8 @@ def migrate_topic_schema():
                 ("target_type", "VARCHAR(30)", "url"),
                 ("apify_actor_id", "VARCHAR(255)", None),
                 ("status", "VARCHAR(20)", "active"),
+                    ("last_error", "VARCHAR(1000)", None),
+                    ("last_error_at", "TIMESTAMP", None),
             ):
                 if column_name not in source_columns:
                     connection.execute(text(f"ALTER TABLE monitored_sources ADD COLUMN {column_name} {column_type}"))
@@ -70,6 +72,16 @@ def migrate_topic_schema():
                 if column_name not in post_columns:
                     column_type = {"is_important": "BOOLEAN DEFAULT FALSE", "is_dangerous": "BOOLEAN DEFAULT FALSE", "content_fingerprint": "VARCHAR(32)", "sentiment": "VARCHAR(20)", "sentiment_score": "INTEGER", "entities": "JSON"}[column_name]
                     connection.execute(text(f"ALTER TABLE posts ADD COLUMN {column_name} {column_type}"))
+
+        if "prompt_templates" in existing_tables:
+            prompt_template_columns = {column["name"] for column in inspect(connection).get_columns("prompt_templates")}
+            for column_name, column_type, default_value in (
+                ("provider", "VARCHAR(50)", "ollama"),
+                ("model_name", "VARCHAR(255)", "qwen2.5:7b"),
+            ):
+                if column_name not in prompt_template_columns:
+                    connection.execute(text(f"ALTER TABLE prompt_templates ADD COLUMN {column_name} {column_type} DEFAULT '{default_value}'"))
+                    connection.execute(text(f"UPDATE prompt_templates SET {column_name} = :value WHERE {column_name} IS NULL"), {"value": default_value})
 
         if "audit_logs" not in existing_tables:
             Base.metadata.create_all(bind=connection, tables=[AuditLog.__table__])

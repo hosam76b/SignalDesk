@@ -1,22 +1,300 @@
-'use client'
+"use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useState } from 'react'
-import { Check, Edit3, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { Check, Edit3, Plus, Trash2, X } from "lucide-react";
 
-type Role = 'super_admin' | 'topic_admin' | 'topic_monitor'
-type Topic = { id: number; title: string }
-type User = { id: number; email: string; full_name: string; role: Role; is_active: boolean; topic_ids: number[] }
-type Request = <T>(path: string, init?: RequestInit) => Promise<T>
+type Role = "super_admin" | "topic_admin" | "topic_monitor";
+type Topic = { id: number; title: string };
+type User = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: Role;
+  is_active: boolean;
+  topic_ids: number[];
+};
+type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
-const roleNames: Record<Role, string> = { super_admin: 'SuperAdmin', topic_admin: 'TopicAdmin', topic_monitor: 'Monitor' }
+const roleNames: Record<Role, string> = {
+  super_admin: "SuperAdmin",
+  topic_admin: "TopicAdmin",
+  topic_monitor: "Monitor",
+};
 
-export function UserManagement({ request, role }: { request: Request; role: Role }) {
-  const [users, setUsers] = useState<User[]>([]); const [topics, setTopics] = useState<Topic[]>([]); const [editing, setEditing] = useState<User | null>(null); const [open, setOpen] = useState(false); const [error, setError] = useState(''); const [form, setForm] = useState({ email: '', password: '', full_name: '', role: 'topic_monitor' as Role, topicId: '' })
-  const load = async () => { try { const [nextUsers, nextTopics] = await Promise.all([request<User[]>('/api/users'), request<Topic[]>('/api/v1/topics')]); setUsers(nextUsers.map(user => ({ ...user, topic_ids: user.topic_ids ?? [] }))); setTopics(nextTopics) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المستخدمين.') } }; useEffect(() => { void load() }, [])
-  const save = async (event: React.FormEvent) => { event.preventDefault(); try { const user = editing ? await request<User>(`/api/users/${editing.id}`, { method: 'PUT', body: JSON.stringify({ full_name: form.full_name, role: form.role }) }) : await request<User>('/api/users', { method: 'POST', body: JSON.stringify({ email: form.email, password: form.password, full_name: form.full_name, role: form.role }) }); if (form.topicId && form.role !== 'super_admin') await request(`/api/v1/topics/${form.topicId}/assign-user`, { method: 'POST', body: JSON.stringify({ user_id: user.id, role: form.role }) }); setOpen(false); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ المستخدم.') } }
-  const remove = async (user: User) => { if (!window.confirm(`حذف المستخدم ${user.email}؟`)) return; try { await request(`/api/users/${user.id}`, { method: 'DELETE' }); await load() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حذف المستخدم.') } }
-  const openCreate = () => { setEditing(null); setForm({ email: '', password: '', full_name: '', role: 'topic_monitor', topicId: '' }); setError(''); setOpen(true) }; const openEdit = (user: User) => { setEditing(user); setForm({ email: user.email, password: '', full_name: user.full_name, role: user.role, topicId: user.topic_ids[0]?.toString() ?? '' }); setError(''); setOpen(true) }
-  if (role !== 'super_admin') return <div className="page-content"><div className="data-error">لا تملك صلاحية إدارة المستخدمين.</div></div>
-  return <div className="page-content"><div className="page-header"><div><p className="eyebrow">RBAC</p><h1>إدارة المستخدمين</h1><p className="subhead">المستخدمون والأدوار والمواضيع المعيّنة.</p></div><button className="primary-button" onClick={openCreate}><Plus size={16}/> مستخدم جديد</button></div>{error && <div className="data-error">{error}</div>}<div className="panel user-table"><div className="table-head"><span>المستخدم</span><span>الدور</span><span>المواضيع</span><span>الحالة</span><span /></div>{users.map(user => <div className="user-row" key={user.id}><div className="user-id"><span className="avatar avatar-cyan">{user.full_name[0]}</span><span><strong>{user.full_name}</strong><small>{user.email}</small></span></div><span>{roleNames[user.role]}</span><span>{user.topic_ids.map(id => topics.find(topic => topic.id === id)?.title ?? `#${id}`).join('، ') || 'عالمي'}</span><span className="badge badge-neutral">{user.is_active ? 'نشط' : 'متوقف'}</span><span className="config-actions"><button className="icon-button" aria-label="تعديل" onClick={() => openEdit(user)}><Edit3 size={15}/></button><button className="icon-button danger-button" aria-label="حذف" onClick={() => remove(user)}><Trash2 size={15}/></button></span></div>)}</div>{open && <div className="modal-backdrop" onClick={() => setOpen(false)}><form className="source-modal" onSubmit={save} onClick={event => event.stopPropagation()}><div className="modal-heading"><h2>{editing ? 'تعديل المستخدم' : 'إنشاء مستخدم'}</h2><button type="button" className="icon-button" onClick={() => setOpen(false)}><X size={18}/></button></div>{!editing && <><label>البريد الإلكتروني<input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} required/></label><label>كلمة المرور<input type="password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} required/></label></>}<label>الاسم<input value={form.full_name} onChange={event => setForm({ ...form, full_name: event.target.value })} required/></label><label>الدور<select value={form.role} onChange={event => setForm({ ...form, role: event.target.value as Role })}>{Object.entries(roleNames).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select></label>{form.role !== 'super_admin' && <label>الموضوع<select value={form.topicId} onChange={event => setForm({ ...form, topicId: event.target.value })} required><option value="">اختر موضوعاً</option>{topics.map(topic => <option value={topic.id} key={topic.id}>{topic.title}</option>)}</select></label>}<div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setOpen(false)}>إلغاء</button><button className="primary-button" type="submit"><Check size={15}/> حفظ</button></div></form></div>}</div>
+export function UserManagement({
+  request,
+  role,
+}: {
+  request: Request;
+  role: Role;
+}) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [editing, setEditing] = useState<User | null>(null);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({
+    email: "",
+    password: "",
+    full_name: "",
+    role: "topic_monitor" as Role,
+    topicId: "",
+  });
+  const load = async () => {
+    try {
+      const [nextUsers, nextTopics] = await Promise.all([
+        request<User[]>("/api/users"),
+        request<Topic[]>("/api/v1/topics"),
+      ]);
+      setUsers(
+        nextUsers.map((user) => ({ ...user, topic_ids: user.topic_ids ?? [] })),
+      );
+      setTopics(nextTopics);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "تعذر تحميل المستخدمين.",
+      );
+    }
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      const user = editing
+        ? await request<User>(`/api/users/${editing.id}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              full_name: form.full_name,
+              role: form.role,
+            }),
+          })
+        : await request<User>("/api/users", {
+            method: "POST",
+            body: JSON.stringify({
+              email: form.email,
+              password: form.password,
+              full_name: form.full_name,
+              role: form.role,
+            }),
+          });
+      if (form.topicId && form.role !== "super_admin")
+        await request(`/api/v1/topics/${form.topicId}/assign-user`, {
+          method: "POST",
+          body: JSON.stringify({ user_id: user.id, role: form.role }),
+        });
+      setOpen(false);
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حفظ المستخدم.");
+    }
+  };
+  const remove = async (user: User) => {
+    if (!window.confirm(`حذف المستخدم ${user.email}؟`)) return;
+    try {
+      await request(`/api/users/${user.id}`, { method: "DELETE" });
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حذف المستخدم.");
+    }
+  };
+  const openCreate = () => {
+    setEditing(null);
+    setForm({
+      email: "",
+      password: "",
+      full_name: "",
+      role: "topic_monitor",
+      topicId: "",
+    });
+    setError("");
+    setOpen(true);
+  };
+  const openEdit = (user: User) => {
+    setEditing(user);
+    setForm({
+      email: user.email,
+      password: "",
+      full_name: user.full_name,
+      role: user.role,
+      topicId: user.topic_ids[0]?.toString() ?? "",
+    });
+    setError("");
+    setOpen(true);
+  };
+  if (role !== "super_admin")
+    return (
+      <div className="page-content">
+        <div className="data-error">لا تملك صلاحية إدارة المستخدمين.</div>
+      </div>
+    );
+  return (
+    <div className="page-content user-management-page">
+      <div className="page-header">
+        <div className="user-page-title">
+          <p className="eyebrow">RBAC</p>
+          <h1>إدارة المستخدمين</h1>
+          <p className="subhead">المستخدمون والأدوار والمواضيع المعيّنة.</p>
+        </div>
+        <button className="primary-button" onClick={openCreate}>
+          <Plus size={16} /> مستخدم جديد
+        </button>
+      </div>
+      {error && <div className="data-error">{error}</div>}
+      <div className="panel user-table">
+        <div className="table-head">
+          <span>المستخدم</span>
+          <span>الدور</span>
+          <span>المواضيع</span>
+          <span>الحالة</span>
+          <span />
+        </div>
+        {users.map((user) => (
+          <div className="user-row" key={user.id}>
+            <div className="user-id">
+              <span className="avatar avatar-cyan">{user.full_name[0]}</span>
+              <span>
+                <strong>{user.full_name}</strong>
+                <small>{user.email}</small>
+              </span>
+            </div>
+            <span>{roleNames[user.role]}</span>
+            <span>
+              {user.topic_ids
+                .map(
+                  (id) =>
+                    topics.find((topic) => topic.id === id)?.title ?? `#${id}`,
+                )
+                .join("، ") || "عالمي"}
+            </span>
+            <span className="badge badge-neutral">
+              {user.is_active ? "نشط" : "متوقف"}
+            </span>
+            <span className="config-actions user-actions">
+              <button
+                className="icon-button"
+                title="تعديل المستخدم"
+                aria-label="تعديل المستخدم"
+                onClick={() => openEdit(user)}
+              >
+                <Edit3 size={15} />
+              </button>
+              <button
+                className="icon-button danger-button"
+                title="حذف المستخدم"
+                aria-label="حذف المستخدم"
+                onClick={() => remove(user)}
+              >
+                <Trash2 size={15} />
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)}>
+          <form
+            className="source-modal"
+            onSubmit={save}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-heading">
+              <h2>{editing ? "تعديل المستخدم" : "إنشاء مستخدم"}</h2>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {!editing && (
+              <>
+                <label>
+                  البريد الإلكتروني
+                  <input
+                    type="email"
+                    value={form.email}
+                    onChange={(event) =>
+                      setForm({ ...form, email: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+                <label>
+                  كلمة المرور
+                  <input
+                    type="password"
+                    value={form.password}
+                    onChange={(event) =>
+                      setForm({ ...form, password: event.target.value })
+                    }
+                    required
+                  />
+                </label>
+              </>
+            )}
+            <label>
+              الاسم
+              <input
+                value={form.full_name}
+                onChange={(event) =>
+                  setForm({ ...form, full_name: event.target.value })
+                }
+                required
+              />
+            </label>
+            <label>
+              الدور
+              <select
+                value={form.role}
+                onChange={(event) =>
+                  setForm({ ...form, role: event.target.value as Role })
+                }
+              >
+                {Object.entries(roleNames).map(([value, label]) => (
+                  <option value={value} key={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {form.role !== "super_admin" && (
+              <label>
+                الموضوع
+                <select
+                  value={form.topicId}
+                  onChange={(event) =>
+                    setForm({ ...form, topicId: event.target.value })
+                  }
+                  required
+                >
+                  <option value="">اختر موضوعاً</option>
+                  {topics.map((topic) => (
+                    <option value={topic.id} key={topic.id}>
+                      {topic.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => setOpen(false)}
+              >
+                إلغاء
+              </button>
+              <button className="primary-button" type="submit">
+                <Check size={15} /> حفظ
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }

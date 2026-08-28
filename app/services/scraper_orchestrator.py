@@ -16,6 +16,7 @@ from app.models.post import Post
 from app.models.topic import Topic
 from app.services.scraper_service import ScraperService
 from app.services.webhook_service import dispatch_post_ingested
+from app.services.media_extraction_service import media_extractor
 
 logger = logging.getLogger(__name__)
 
@@ -131,9 +132,6 @@ class ScraperOrchestrator:
             stats["errors"].append(f"No active monitored sources for topic {topic.id}")
             return stats
 
-        if not keywords:
-            stats["errors"].append(f"No active keywords for topic {topic.id}")
-
         keyword_list = [kw.word_or_phrase for kw in keywords]
         stats["total_sources"] = len(sources)
 
@@ -142,13 +140,31 @@ class ScraperOrchestrator:
         for source in sources:
             try:
                 source.status = "pending"
+                source.last_error = None
+                source.last_error_at = None
                 db.commit()
                 logger.info(f"🔄 Processing source: {source.name} ({source.platform})")
                 posts = await self._scrape_source(source, keyword_list)
-                posts = [post for post in posts if self._matches_keywords(post, keyword_list)]
+                
+                # Multimodal enrichment (Audio transcription & Image OCR)
+                enriched_posts: list[dict[str, Any]] = []
+                for p in posts:
+                    try:
+                        enriched_posts.append(await media_extractor.enrich_post_multimodal(p))
+                    except Exception as exc:
+                        logger.debug("Media enrichment skipped for post: %s", exc)
+                        enriched_posts.append(p)
+                posts = enriched_posts
+
+                if keyword_list:
+                    posts = [post for post in posts if self._matches_keywords(post, keyword_list)]
 
                 if not posts:
                     logger.warning(f"⚠️  No posts found for {source.name}")
+                    source.last_scraped_at = datetime.now(timezone.utc)
+                    source.status = "active"
+                    db.add(source)
+                    db.commit()
                     continue
 
                 stats["total_posts_found"] += len(posts)
@@ -195,6 +211,8 @@ class ScraperOrchestrator:
 
             except Exception as e:
                 source.status = "failed"
+                source.last_error = str(e)[:1000]
+                source.last_error_at = datetime.now(timezone.utc)
                 db.add(source)
                 db.commit()
                 error_msg = f"Error processing {source.name}: {str(e)}"
@@ -208,7 +226,7 @@ class ScraperOrchestrator:
     def _matches_keywords(post: Dict[str, Any], keywords: List[str]) -> bool:
         """Keep only content matching a keyword assigned to the current topic."""
         if not keywords:
-            return False
+            return True
         content = " ".join(str(post.get(field, "")) for field in ("title", "content")).lower()
         return any(keyword.lower() in content for keyword in keywords)
 

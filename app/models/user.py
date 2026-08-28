@@ -3,11 +3,10 @@ User database model.
 Represents platform users with authentication and role-based access control.
 """
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SqlEnum, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.session import Base
-from app.models.enums import UserRole
 
 
 class User(Base):
@@ -31,12 +30,7 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
-    role = Column(
-        SqlEnum(UserRole, values_callable=lambda roles: [role.value for role in roles],
-                native_enum=False, create_constraint=True),
-        default=UserRole.TOPIC_MONITOR.value,
-        nullable=False,
-    )
+    role = Column(String(50), default="observer", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
@@ -45,6 +39,8 @@ class User(Base):
     reports = relationship("Report", back_populates="author", cascade="all, delete-orphan")
     created_topics = relationship("Topic", back_populates="created_by")
     user_topics = relationship("UserTopic", back_populates="user", cascade="all, delete-orphan")
+    topic_permissions = relationship("TopicPermission", back_populates="user", cascade="all, delete-orphan")
+    prompt_templates = relationship("PromptTemplate", back_populates="created_by", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user")
 
     @property

@@ -40,6 +40,8 @@ class MonitoredSource(Base):
     status = Column(String(20), default="active", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     last_scraped_at = Column(DateTime, nullable=True)
+    last_error = Column(String(1000), nullable=True)
+    last_error_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationships

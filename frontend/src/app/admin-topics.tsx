@@ -1,17 +1,408 @@
-'use client'
+"use client";
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import { useEffect, useState } from 'react'
-import { Check, Edit3, Plus, Trash2, X } from 'lucide-react'
+import { useEffect, useState } from "react";
+import { Check, Edit3, FileText, Plus, Trash2, X } from "lucide-react";
 
-type Role = 'super_admin' | 'topic_admin' | 'topic_monitor'
-type Topic = { id: number; title: string; description?: string | null }
-type Item = { id: number; name?: string; platform?: string; url_or_handle?: string; word_or_phrase?: string; category?: string; apify_actor_id?: string | null; status?: string; is_active: boolean }
-type Request = <T>(path: string, init?: RequestInit) => Promise<T>
+const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-export function TopicManagement({ request, role }: { request: Request; role: Role }) {
-  const [topics, setTopics] = useState<Topic[]>([]); const [selected, setSelected] = useState<Topic | null>(null); const [items, setItems] = useState<Item[]>([]); const [tab, setTab] = useState<'sources' | 'keywords'>('sources'); const [topicModal, setTopicModal] = useState(false); const [itemModal, setItemModal] = useState(false); const [editingTopic, setEditingTopic] = useState<Topic | null>(null); const [editingItem, setEditingItem] = useState<Item | null>(null); const [title, setTitle] = useState(''); const [description, setDescription] = useState(''); const [name, setName] = useState(''); const [value, setValue] = useState(''); const [platform, setPlatform] = useState('rss'); const [actorId, setActorId] = useState(''); const [error, setError] = useState('')
-  const canManage = role === 'super_admin' || role === 'topic_admin'; const loadTopics = async () => { try { const next = await request<Topic[]>('/api/v1/topics'); setTopics(next); setSelected(current => current && next.some(topic => topic.id === current.id) ? current : next[0] ?? null) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل المواضيع.') } }; const loadItems = async () => { if (!selected) return; try { setItems(await request<Item[]>(`/api/v1/topics/${selected.id}/${tab}`)) } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر تحميل الموارد.') } }; useEffect(() => { void loadTopics() }, []); useEffect(() => { void loadItems() }, [selected?.id, tab])
-  const saveTopic = async (event: React.FormEvent) => { event.preventDefault(); try { await request<Topic>(editingTopic ? `/api/v1/topics/${editingTopic.id}` : '/api/v1/topics', { method: editingTopic ? 'PUT' : 'POST', body: JSON.stringify({ title: title.trim(), description: description.trim() || null }) }); setTopicModal(false); setEditingTopic(null); await loadTopics() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ الموضوع.') } }; const removeTopic = async (topic: Topic) => { if (!window.confirm('حذف هذا الموضوع؟')) return; try { await request(`/api/v1/topics/${topic.id}`, { method: 'DELETE' }); await loadTopics() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حذف الموضوع.') } }; const saveItem = async (event: React.FormEvent) => { event.preventDefault(); if (!selected) return; const body = tab === 'sources' ? { name: name.trim(), platform, url_or_handle: value.trim(), target_type: 'url', apify_actor_id: actorId.trim() || null, is_active: true } : { word_or_phrase: value.trim(), category: 'general', is_active: true }; try { await request(editingItem ? `/api/v1/topics/${selected.id}/${tab}/${editingItem.id}` : `/api/v1/topics/${selected.id}/${tab}`, { method: editingItem ? 'PUT' : 'POST', body: JSON.stringify(body) }); setItemModal(false); await loadItems() } catch (cause) { setError(cause instanceof Error ? cause.message : 'تعذر حفظ المورد.') } }; const openTopic = (topic?: Topic) => { setEditingTopic(topic ?? null); setTitle(topic?.title ?? ''); setDescription(topic?.description ?? ''); setTopicModal(true) }; const openItem = (item?: Item) => { setEditingItem(item ?? null); setName(item?.name ?? ''); setPlatform(item?.platform ?? 'rss'); setValue(item?.url_or_handle ?? item?.word_or_phrase ?? ''); setActorId(item?.apify_actor_id ?? ''); setItemModal(true) }
-  return <div className="page-content"><div className="page-header"><div><p className="eyebrow">Topics</p><h1>إدارة المواضيع</h1><p className="subhead">تخصيص المصادر والكلمات لكل موضوع.</p></div>{role === 'super_admin' && <button className="primary-button" onClick={() => openTopic()}><Plus size={16}/> موضوع جديد</button>}</div>{error && <div className="data-error">{error}</div>}<div className="access-grid"><div className="panel config-list">{topics.map(topic => <div className="config-row" key={topic.id}><button className={`nav-item ${selected?.id === topic.id ? 'active' : ''}`} onClick={() => setSelected(topic)}><span>{topic.title}</span></button>{role === 'super_admin' && <span className="config-actions"><button className="icon-button" aria-label="تعديل الموضوع" onClick={() => openTopic(topic)}><Edit3 size={15}/></button><button className="icon-button danger-button" aria-label="حذف الموضوع" onClick={() => removeTopic(topic)}><Trash2 size={15}/></button></span>}</div>)}</div>{selected && <div className="panel config-list"><div className="panel-heading"><div><p className="eyebrow">{selected.title}</p><h2>{selected.description || 'موارد الموضوع'}</h2></div>{canManage && <button className="primary-button" onClick={() => openItem()}><Plus size={15}/> إضافة</button>}</div><div className="config-tabs"><button className={tab === 'sources' ? 'selected' : ''} onClick={() => setTab('sources')}>المصادر ({tab === 'sources' ? items.length : '...'})</button><button className={tab === 'keywords' ? 'selected' : ''} onClick={() => setTab('keywords')}>الكلمات ({tab === 'keywords' ? items.length : '...'})</button></div>{items.map(item => <div className="config-row" key={item.id}><span className="config-icon">{tab === 'sources' ? item.platform?.[0].toUpperCase() : '#'}</span><span><strong>{tab === 'sources' ? item.name : item.word_or_phrase}</strong><small>{tab === 'sources' ? item.url_or_handle : item.category}</small></span>{canManage && <span className="config-actions"><button className="icon-button" aria-label="تعديل المورد" onClick={() => openItem(item)}><Edit3 size={15}/></button><button className="icon-button danger-button" aria-label="حذف المورد" onClick={() => request(`/api/v1/topics/${selected.id}/${tab}/${item.id}`, { method: 'DELETE' }).then(loadItems).catch(() => setError('تعذر حذف المورد.'))}><Trash2 size={15}/></button></span>}</div>)}</div>}</div>{topicModal && <div className="modal-backdrop" onClick={() => setTopicModal(false)}><form className="source-modal" onSubmit={saveTopic} onClick={event => event.stopPropagation()}><div className="modal-heading"><h2>{editingTopic ? 'تعديل الموضوع' : 'إنشاء موضوع'}</h2><button type="button" className="icon-button" onClick={() => setTopicModal(false)}><X size={18}/></button></div><label>اسم الموضوع<input value={title} onChange={event => setTitle(event.target.value)} required/></label><label>الوصف<textarea value={description} onChange={event => setDescription(event.target.value)}/></label><button className="primary-button" type="submit"><Check size={15}/> حفظ</button></form></div>}{itemModal && selected && <div className="modal-backdrop" onClick={() => setItemModal(false)}><form className="source-modal" onSubmit={saveItem} onClick={event => event.stopPropagation()}><div className="modal-heading"><h2>{editingItem ? 'تعديل المورد' : 'إضافة مورد'}</h2><button type="button" className="icon-button" onClick={() => setItemModal(false)}><X size={18}/></button></div>{tab === 'sources' && <><label>الاسم<input value={name} onChange={event => setName(event.target.value)} required/></label><label>المنصة<select value={platform} onChange={event => setPlatform(event.target.value)}><option value="rss">RSS</option><option value="facebook">Facebook</option><option value="reddit">Reddit</option><option value="youtube">YouTube</option></select></label><label>Apify Actor ID<input value={actorId} onChange={event => setActorId(event.target.value)}/></label></>}<label>{tab === 'sources' ? 'الرابط أو المعرّف' : 'الكلمة المفتاحية'}<input value={value} onChange={event => setValue(event.target.value)} required/></label><button className="primary-button" type="submit"><Check size={15}/> حفظ</button></form></div>}</div>
+type Role = "super_admin" | "topic_admin" | "topic_monitor";
+type Topic = { id: number; title: string; description?: string | null };
+type Item = {
+  id: number;
+  name?: string;
+  platform?: string;
+  url_or_handle?: string;
+  word_or_phrase?: string;
+  category?: string;
+  apify_actor_id?: string | null;
+  status?: string;
+  last_error?: string | null;
+  last_error_at?: string | null;
+  is_active: boolean;
+};
+type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
+
+export function TopicManagement({
+  request,
+  role,
+}: {
+  request: Request;
+  role: Role;
+}) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [selected, setSelected] = useState<Topic | null>(null);
+  const [items, setItems] = useState<Item[]>([]);
+  const [tab, setTab] = useState<"sources" | "keywords">("sources");
+  const [topicModal, setTopicModal] = useState(false);
+  const [itemModal, setItemModal] = useState(false);
+  const [editingTopic, setEditingTopic] = useState<Topic | null>(null);
+  const [editingItem, setEditingItem] = useState<Item | null>(null);
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [name, setName] = useState("");
+  const [value, setValue] = useState("");
+  const [platform, setPlatform] = useState("rss");
+  const [actorId, setActorId] = useState("");
+  const [error, setError] = useState("");
+  const canManage = role === "super_admin" || role === "topic_admin";
+  const loadTopics = async () => {
+    try {
+      const next = await request<Topic[]>("/api/v1/topics");
+      setTopics(next);
+      setSelected((current) =>
+        current && next.some((topic) => topic.id === current.id)
+          ? current
+          : (next[0] ?? null),
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر تحميل المواضيع.");
+    }
+  };
+  const loadItems = async () => {
+    if (!selected) return;
+    try {
+      setItems(await request<Item[]>(`/api/v1/topics/${selected.id}/${tab}`));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر تحميل الموارد.");
+    }
+  };
+  useEffect(() => {
+    void loadTopics();
+  }, []);
+  useEffect(() => {
+    void loadItems();
+  }, [selected?.id, tab]);
+  const saveTopic = async (event: React.FormEvent) => {
+    event.preventDefault();
+    try {
+      await request<Topic>(
+        editingTopic ? `/api/v1/topics/${editingTopic.id}` : "/api/v1/topics",
+        {
+          method: editingTopic ? "PUT" : "POST",
+          body: JSON.stringify({
+            title: title.trim(),
+            description: description.trim() || null,
+          }),
+        },
+      );
+      setTopicModal(false);
+      setEditingTopic(null);
+      await loadTopics();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حفظ الموضوع.");
+    }
+  };
+  const removeTopic = async (topic: Topic) => {
+    if (!window.confirm("حذف هذا الموضوع؟")) return;
+    try {
+      await request(`/api/v1/topics/${topic.id}`, { method: "DELETE" });
+      await loadTopics();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حذف الموضوع.");
+    }
+  };
+  const saveItem = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selected) return;
+    const body =
+      tab === "sources"
+        ? {
+            name: name.trim(),
+            platform,
+            url_or_handle: value.trim(),
+            target_type: "url",
+            apify_actor_id: actorId.trim() || null,
+            is_active: true,
+          }
+        : {
+            word_or_phrase: value.trim(),
+            category: "general",
+            is_active: true,
+          };
+    try {
+      await request(
+        editingItem
+          ? `/api/v1/topics/${selected.id}/${tab}/${editingItem.id}`
+          : `/api/v1/topics/${selected.id}/${tab}`,
+        { method: editingItem ? "PUT" : "POST", body: JSON.stringify(body) },
+      );
+      setItemModal(false);
+      await loadItems();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر حفظ المورد.");
+    }
+  };
+  const openTopic = (topic?: Topic) => {
+    setEditingTopic(topic ?? null);
+    setTitle(topic?.title ?? "");
+    setDescription(topic?.description ?? "");
+    setTopicModal(true);
+  };
+  const openItem = (item?: Item) => {
+    setEditingItem(item ?? null);
+    setName(item?.name ?? "");
+    setPlatform(item?.platform ?? "rss");
+    setValue(item?.url_or_handle ?? item?.word_or_phrase ?? "");
+    setActorId(item?.apify_actor_id ?? "");
+    setItemModal(true);
+  };
+  const exportPdf = async (tId: number, tTitle: string) => {
+    try {
+      const token = window.localStorage.getItem("signaldesk_token") || "";
+      const response = await fetch(`${API}/api/v1/topics/${tId}/export-pdf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error("تعذر إنشاء تقرير PDF");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `intelligence_report_topic_${tId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر تصدير تقرير PDF.");
+    }
+  };
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">Topics</p>
+          <h1>إدارة المواضيع</h1>
+          <p className="subhead">تخصيص المصادر والكلمات لكل موضوع.</p>
+        </div>
+        {role === "super_admin" && (
+          <button className="primary-button" onClick={() => openTopic()}>
+            <Plus size={16} /> موضوع جديد
+          </button>
+        )}
+      </div>
+      {error && <div className="data-error">{error}</div>}
+      <div className="access-grid">
+        <div className="panel config-list">
+          {topics.map((topic) => (
+            <div className="config-row" key={topic.id}>
+              <button
+                className={`nav-item ${selected?.id === topic.id ? "active" : ""}`}
+                onClick={() => setSelected(topic)}
+              >
+                <span>{topic.title}</span>
+              </button>
+              {role === "super_admin" && (
+                <span className="config-actions">
+                  <button
+                    className="icon-button"
+                    aria-label="تعديل الموضوع"
+                    onClick={() => openTopic(topic)}
+                  >
+                    <Edit3 size={15} />
+                  </button>
+                  <button
+                    className="icon-button danger-button"
+                    aria-label="حذف الموضوع"
+                    onClick={() => removeTopic(topic)}
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+        {selected && (
+          <div className="panel config-list">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">{selected.title}</p>
+                <h2>{selected.description || "موارد الموضوع"}</h2>
+              </div>
+              <div style={{ display: "flex", gap: "0.5rem" }}>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => exportPdf(selected.id, selected.title)}
+                  title="تصدير تقرير استخباراتي تنفيذي بصيغة PDF"
+                  style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
+                >
+                  <FileText size={15} color="#3b82f6" /> تصدير تقرير PDF
+                </button>
+                {canManage && (
+                  <button className="primary-button" onClick={() => openItem()}>
+                    <Plus size={15} /> إضافة
+                  </button>
+                )}
+              </div>
+            </div>
+            <div className="config-tabs">
+              <button
+                className={tab === "sources" ? "selected" : ""}
+                onClick={() => setTab("sources")}
+              >
+                المصادر ({tab === "sources" ? items.length : "..."})
+              </button>
+              <button
+                className={tab === "keywords" ? "selected" : ""}
+                onClick={() => setTab("keywords")}
+              >
+                الكلمات ({tab === "keywords" ? items.length : "..."})
+              </button>
+            </div>
+            {items.map((item) => (
+              <div className="config-row" key={item.id}>
+                <span className="config-icon">
+                  {tab === "sources" ? item.platform?.[0].toUpperCase() : "#"}
+                </span>
+                <span>
+                  <strong>
+                    {tab === "sources" ? item.name : item.word_or_phrase}
+                  </strong>
+                  <small>
+                    {tab === "sources" ? item.url_or_handle : item.category}
+                  </small>
+                  {tab === "sources" && item.last_error && (
+                    <small className="source-error-note" title={item.last_error}>
+                      تعذر الجلب: {item.last_error}
+                    </small>
+                  )}
+                </span>
+                {tab === "sources" && item.status === "failed" && (
+                  <span className="badge source-failed-badge">فشل الجلب</span>
+                )}
+                {canManage && (
+                  <span className="config-actions">
+                    <button
+                      className="icon-button"
+                      aria-label="تعديل المورد"
+                      onClick={() => openItem(item)}
+                    >
+                      <Edit3 size={15} />
+                    </button>
+                    <button
+                      className="icon-button danger-button"
+                      aria-label="حذف المورد"
+                      onClick={() =>
+                        request(
+                          `/api/v1/topics/${selected.id}/${tab}/${item.id}`,
+                          { method: "DELETE" },
+                        )
+                          .then(loadItems)
+                          .catch(() => setError("تعذر حذف المورد."))
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {topicModal && (
+        <div className="modal-backdrop" onClick={() => setTopicModal(false)}>
+          <form
+            className="source-modal"
+            onSubmit={saveTopic}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-heading">
+              <h2>{editingTopic ? "تعديل الموضوع" : "إنشاء موضوع"}</h2>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setTopicModal(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <label>
+              اسم الموضوع
+              <input
+                value={title}
+                onChange={(event) => setTitle(event.target.value)}
+                required
+              />
+            </label>
+            <label>
+              الوصف
+              <textarea
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+              />
+            </label>
+            <button className="primary-button" type="submit">
+              <Check size={15} /> حفظ
+            </button>
+          </form>
+        </div>
+      )}
+      {itemModal && selected && (
+        <div className="modal-backdrop" onClick={() => setItemModal(false)}>
+          <form
+            className="source-modal"
+            onSubmit={saveItem}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="modal-heading">
+              <h2>{editingItem ? "تعديل المورد" : "إضافة مورد"}</h2>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setItemModal(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            {tab === "sources" && (
+              <>
+                <label>
+                  الاسم
+                  <input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    required
+                  />
+                </label>
+                <label>
+                  المنصة
+                  <select
+                    value={platform}
+                    onChange={(event) => setPlatform(event.target.value)}
+                  >
+                    <option value="rss">RSS</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="facebook">Facebook</option>
+                    <option value="reddit">Reddit</option>
+                    <option value="youtube">YouTube</option>
+                  </select>
+                </label>
+                <label>
+                  Apify Actor ID
+                  <input
+                    value={actorId}
+                    onChange={(event) => setActorId(event.target.value)}
+                  />
+                </label>
+              </>
+            )}
+            <label>
+              {tab === "sources" ? "الرابط أو المعرّف" : "الكلمة المفتاحية"}
+              <input
+                value={value}
+                onChange={(event) => setValue(event.target.value)}
+                required
+              />
+            </label>
+            <button className="primary-button" type="submit">
+              <Check size={15} /> حفظ
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }

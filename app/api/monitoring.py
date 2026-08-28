@@ -32,6 +32,8 @@ class SourceOutput(SourceInput):
     id: int
     topic_id: int
     last_scraped_at: datetime | None = None
+    last_error: str | None = None
+    last_error_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

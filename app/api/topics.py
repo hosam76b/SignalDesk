@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
@@ -14,6 +15,8 @@ from app.core.security import hash_password
 from app.db.session import get_db
 from app.models import AuditLog, Keyword, MonitoredSource, Post, Topic, User, UserTopic
 from app.services.audit_service import record_audit
+from app.services.pdf_report_service import generate_topic_executive_pdf
+from app.services.propagation_service import analyze_topic_propagation_graph
 from app.services.scraper_service import SUPPORTED_PLATFORMS
 
 router = APIRouter(prefix="/api/v1/topics", tags=["Topics"])
@@ -74,7 +77,7 @@ class SourceInput(BaseModel):
         platform = str(info.data.get("platform", "")).lower()
         if any(character in value for character in ("\r", "\n", "\x00")):
             raise ValueError("Target contains invalid control characters")
-        is_handle = platform in {"reddit", "facebook", "instagram", "x", "twitter"} and not value.startswith(("http://", "https://"))
+        is_handle = platform in {"reddit", "facebook", "instagram", "x", "twitter", "telegram"} and not value.startswith(("http://", "https://"))
         if not is_handle and not value.startswith(("http://", "https://")):
             raise ValueError("Target must be an HTTP(S) URL for this platform")
         if not is_handle:
@@ -91,6 +94,8 @@ class SourceOutput(SourceInput):
     topic_id: int
     last_scraped_at: datetime | None = None
     status: str
+    last_error: str | None = None
+    last_error_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -361,3 +366,36 @@ def topic_stats(topic_id: int, db: Session = Depends(get_db), _: User = Depends(
         "keywords_count": db.query(Keyword).filter(Keyword.topic_id == topic_id).count(),
         "news_count": db.query(Post).filter(Post.topic_id == topic_id).count(),
     }
+
+
+@router.get("/{topic_id}/export-pdf")
+@router.get("/{topic_id}/report.pdf", include_in_schema=False)
+def export_topic_pdf_report(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_topic_user),
+):
+    """Generate and download Executive Intelligence PDF Report for this topic."""
+    try:
+        pdf_bytes = generate_topic_executive_pdf(db, topic_id, requester=current_user)
+        filename = f"intelligence_report_topic_{topic_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PDF generation failed: {exc}") from exc
+
+
+@router.get("/{topic_id}/propagation-graph")
+def topic_propagation_graph(
+    topic_id: int,
+    cib_window_minutes: int = Query(default=60, ge=1, le=1440),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_topic_user),
+):
+    """Retrieve network propagation graph and CIB spread analysis for this topic."""
+    return analyze_topic_propagation_graph(db, topic_id, cib_window_minutes=cib_window_minutes)

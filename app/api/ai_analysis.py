@@ -5,13 +5,15 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.topic import PromptTemplate, Topic
 from app.models.user import User
-from app.core.deps import get_current_user, get_current_admin_user
+from app.core.deps import get_current_user, get_current_admin_user, get_current_topic_user
 from app.services.ai_orchestrator import ai_orchestrator
+from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
 
@@ -57,6 +59,81 @@ class FlaggedPostsResponse(BaseModel):
     posts: list[FlaggedPostResponse]
 
 
+class PromptTemplateCreate(BaseModel):
+    topic_id: int
+    name: str = Field(min_length=1, max_length=255)
+    template: str = Field(min_length=1)
+    variables: str | None = None
+    provider: str = "ollama"
+    model_name: str = "qwen2.5:7b"
+    is_active: bool = True
+
+
+class PromptTemplateRead(BaseModel):
+    id: int
+    topic_id: int
+    name: str
+    template: str
+    variables: str | None
+    provider: str
+    model_name: str
+    is_active: bool
+    created_by_id: int | None
+
+    model_config = {"from_attributes": True}
+
+
+class AIConnectionConfig(BaseModel):
+    provider: str
+    model: str
+    base_url: str
+    api_key: str | None = None
+
+
+class AIConnectionRead(BaseModel):
+    provider: str
+    model: str
+    base_url: str
+    has_api_key: bool
+    configured: bool
+
+
+@router.get("/status")
+def get_ai_status_endpoint() -> dict[str, Any]:
+    """Expose the optional AI engine availability state to the frontend."""
+    return get_ai_status()
+
+
+@router.get("/config", response_model=AIConnectionRead)
+def get_ai_config(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    return ai_service.get_config()
+
+
+@router.put("/config", response_model=AIConnectionRead)
+def update_ai_config(payload: AIConnectionConfig, _: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    try:
+        return ai_service.configure(payload.provider, payload.model, payload.base_url, payload.api_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/config/test")
+def test_ai_connection(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    try:
+        return ai_service.test_connection()
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"AI provider connection failed: {exc}") from exc
+
+
+@router.get("/config/models")
+def fetch_ai_models(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    try:
+        models = ai_service.fetch_models()
+        return {"provider": ai_service.get_config()["provider"], "models": models}
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Unable to fetch models: {exc}") from exc
+
+
 @router.post("/analyze-pending", response_model=AnalysisResponse)
 def analyze_pending_posts(
     batch_size: int = Query(default=50, ge=1, le=500),
@@ -82,3 +159,62 @@ def get_flagged_posts(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
     return FlaggedPostsResponse(**result)
+
+
+@router.get("/topics/{topic_id}/prompts", response_model=list[PromptTemplateRead])
+def list_prompt_templates(topic_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)) -> list[PromptTemplate]:
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    if current_user.role == "super_admin":
+        prompt_templates = db.query(PromptTemplate).filter(PromptTemplate.topic_id == topic_id).all()
+    else:
+        prompt_templates = db.query(PromptTemplate).filter(PromptTemplate.topic_id == topic_id, PromptTemplate.is_active == 1).all()
+        if not prompt_templates and current_user.role not in {"topic_manager", "analyst", "observer"}:
+            raise HTTPException(status_code=403, detail="No prompt access")
+    return prompt_templates
+
+
+@router.post("/topics/{topic_id}/prompts", response_model=PromptTemplateRead)
+def create_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_user)) -> PromptTemplate:
+    if current_user.role not in {"super_admin", "topic_manager"}:
+        raise HTTPException(status_code=403, detail="Prompt configuration requires topic manager privileges")
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    template = PromptTemplate(
+        topic_id=topic_id,
+        created_by_id=current_user.id,
+        name=payload.name,
+        template=payload.template,
+        variables=payload.variables,
+        provider=payload.provider,
+        model_name=payload.model_name,
+        is_active=1 if payload.is_active else 0,
+    )
+    db.add(template)
+    db.commit()
+    db.refresh(template)
+    return template
+
+
+@router.post("/topics/{topic_id}/prompts/test")
+def test_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_user)) -> dict[str, Any]:
+    if current_user.role not in {"super_admin", "topic_manager"}:
+        raise HTTPException(status_code=403, detail="Prompt testing requires topic manager privileges")
+    context = {
+        "topic_name": db.query(Topic).filter(Topic.id == topic_id).first().title if db.query(Topic).filter(Topic.id == topic_id).first() else "Topic",
+        "posts_content": "Sample post text to simulate analysis.",
+        "keywords": "risk, threat, escalation",
+        "time_range": "last 24 hours",
+    }
+    provider = payload.provider or "ollama"
+    model_name = payload.model_name or "qwen2.5:7b"
+    rendered = payload.template
+    for key, value in context.items():
+        rendered = rendered.replace(f"{{{key}}}", str(value))
+    summary = analyze_post_content(rendered)
+    status = get_ai_status()
+    status["provider"] = provider
+    status["model"] = model_name
+    return {"success": True, "rendered_prompt": rendered, "ai_status": status, "analysis": summary}

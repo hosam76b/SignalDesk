@@ -9,11 +9,12 @@ from app.models.source import MonitoredSource
 from app.models.keyword import Keyword
 from app.models.post import Post
 from app.models.report import Report
-from app.models.topic import Topic, UserTopic
+from app.models.topic import Topic, UserTopic, TopicPermission, PromptTemplate
 from app.models.enums import TopicRole, UserRole
 from app.models.audit import AuditLog
+from app.models.knowledge import KnowledgeDocument
 
 __all__ = [
 	"Base", "User", "MonitoredSource", "Keyword", "Post", "Report",
-	"Topic", "UserTopic", "UserRole", "TopicRole", "AuditLog",
+	"Topic", "UserTopic", "TopicPermission", "PromptTemplate", "UserRole", "TopicRole", "AuditLog", "KnowledgeDocument",
 ]

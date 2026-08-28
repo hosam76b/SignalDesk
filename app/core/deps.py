@@ -15,6 +15,26 @@ from app.models.user import User
 security = HTTPBearer()
 
 
+ROLE_ALIASES = {
+    "admin": "super_admin",
+    "analyst": "analyst",
+    "observer": "observer",
+    "topic_admin": "topic_manager",
+    "topic_manager": "topic_manager",
+    "topic_monitor": "analyst",
+    "super_admin": "super_admin",
+}
+
+
+def normalize_role(role: str | None) -> str:
+    if role is None:
+        return "observer"
+    normalized = str(role).strip().lower()
+    if "." in normalized:
+        normalized = normalized.split(".")[-1]
+    return ROLE_ALIASES.get(normalized, normalized)
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: Session = Depends(get_db),
@@ -42,6 +62,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive")
+    user.role = normalize_role(user.role)
     return user
 
 
@@ -49,7 +70,7 @@ def get_current_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     """Resolve the authenticated user and require the administrator role."""
-    if current_user.role != "super_admin":
+    if normalize_role(current_user.role) != "super_admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Administrator privileges required",
@@ -63,7 +84,7 @@ def get_current_topic_user(
     db: Session = Depends(get_db),
 ) -> User:
     """Require a super admin or an assignment to the requested topic."""
-    if current_user.role == "super_admin":
+    if normalize_role(current_user.role) == "super_admin":
         return current_user
 
     assignment = db.query(UserTopic).filter(
@@ -84,15 +105,15 @@ def get_current_topic_admin(
     db: Session = Depends(get_db),
 ) -> User:
     """Require super-admin or topic-admin access to the requested topic."""
-    if current_user.role == "super_admin":
+    if normalize_role(current_user.role) == "super_admin":
         return current_user
 
     assignment = db.query(UserTopic).filter(
         UserTopic.user_id == current_user.id,
         UserTopic.topic_id == topic_id,
-        UserTopic.role == "topic_admin",
     ).first()
-    if assignment is None:
+    allowed_roles = {"topic_manager", "topic_admin", "topic_monitor", "analyst"}
+    if assignment is None or normalize_role(assignment.role) not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Topic administrator privileges required",
