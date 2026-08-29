@@ -48,7 +48,10 @@ type Page =
   | "automation"
   | "knowledge"
   | "audit"
-  | "prompts";
+  | "prompts"
+  | "approvals"
+  | "proposals"
+  | "profile";
 type Post = {
   id: number;
   topic_id: number;
@@ -106,7 +109,12 @@ type Item = {
   apify_actor_id?: string | null;
   status?: string;
   is_active: boolean;
+  approval_status?: "pending" | "approved" | "rejected";
+  proposed_by_id?: number | null;
+  reviewed_by_id?: number | null;
+  reviewed_at?: string | null;
 };
+type ApprovalsSummary = { sources: Item[]; keywords: Item[] };
 type ScraperStatus = { status: "idle" | "running"; message: string; last_run?: string | null; is_running: boolean };
 type ScrapingResult = { success: boolean; total_sources: number; total_posts_found: number; new_posts_saved: number; errors: { source?: string; error?: string }[]; duration_seconds: number; sources_processed: Record<string, { sources?: number; posts_found?: number; posts_saved?: number }> };
 const labels = {
@@ -122,6 +130,9 @@ const labels = {
     sources: "الروابط والمصادر",
     keywords: "الكلمات المفتاحية",
     prompts: "إعدادات الذكاء الاصطناعي",
+    approvals: "طلبات الموافقة",
+    proposals: "تقديم مقترح",
+    profile: "الملف الشخصي والأمان",
     signout: "تسجيل الخروج",
   },
   en: {
@@ -136,6 +147,9 @@ const labels = {
     sources: "Sources",
     keywords: "Keywords",
     prompts: "AI settings",
+    approvals: "Pending approvals",
+    proposals: "Submit proposal",
+    profile: "Profile & security",
     signout: "Sign out",
   },
 };
@@ -191,8 +205,20 @@ function Login({
 }) {
   const [email, setEmail] = useState("admin@example.com");
   const [password, setPassword] = useState("admin123");
+  const [totpCode, setTotpCode] = useState("");
   const [error, setError] = useState("");
   const [visible, setVisible] = useState(false);
+  const [mode, setMode] = useState<"login" | "forgot" | "reset">("login");
+  const [resetToken, setResetToken] = useState("");
+  const [resetPassword, setResetPassword] = useState("");
+  const [notice, setNotice] = useState("");
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.search).get("reset_token");
+    if (token) {
+      setResetToken(token);
+      setMode("reset");
+    }
+  }, []);
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
@@ -200,7 +226,7 @@ function Login({
       const response = await fetch(`${API}/api/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, totp_code: totpCode || undefined }),
       });
       if (!response.ok) throw new ApiError(response.status);
       const data = (await response.json()) as {
@@ -210,6 +236,44 @@ function Login({
       onLogin(data.access_token, data.role);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "تعذر تسجيل الدخول");
+    }
+  };
+  const submitForgot = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`${API}/api/auth/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      if (!response.ok) throw new ApiError(response.status);
+      setNotice(
+        lang === "ar"
+          ? "إذا كان البريد الإلكتروني مسجلاً لدينا، فسيصلك رابط إعادة تعيين كلمة المرور."
+          : "If that email is registered, a password reset link has been sent.",
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر إرسال الطلب.");
+    }
+  };
+  const submitReset = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    try {
+      const response = await fetch(`${API}/api/auth/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: resetToken, new_password: resetPassword }),
+      });
+      if (!response.ok) throw new ApiError(response.status);
+      setNotice(lang === "ar" ? "تم تحديث كلمة المرور. يمكنك تسجيل الدخول الآن." : "Password updated. You can sign in now.");
+      setMode("login");
+      window.history.replaceState({}, "", window.location.pathname);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "تعذر إعادة تعيين كلمة المرور.");
     }
   };
   return (
@@ -240,48 +304,113 @@ function Login({
             : "Bring sources together and track risk from one place."}
         </p>
       </section>
-      <form className="login-card" onSubmit={submit}>
-        <button type="button" className="language-button" onClick={toggle}>
-          {lang === "ar" ? "English" : "العربية"}
-        </button>
-        <p className="eyebrow">
-          {lang === "ar" ? "الوصول الآمن" : "Secure access"}
-        </p>
-        <h2>{lang === "ar" ? "مرحباً بعودتك" : "Welcome back"}</h2>
-        <p className="login-hint">
-          {lang === "ar"
-            ? "أدخل بياناتك للوصول إلى مساحة المراقبة"
-            : "Enter your credentials to access the workspace"}
-        </p>
-        <label>
-          {lang === "ar" ? "البريد الإلكتروني" : "Email"}
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            type="email"
-            required
-          />
-        </label>
-        <label>
-          {lang === "ar" ? "كلمة المرور" : "Password"}
-          <span className="password-input">
+      {mode === "login" ? (
+        <form className="login-card" onSubmit={submit}>
+          <button type="button" className="language-button" onClick={toggle}>
+            {lang === "ar" ? "English" : "العربية"}
+          </button>
+          <p className="eyebrow">
+            {lang === "ar" ? "الوصول الآمن" : "Secure access"}
+          </p>
+          <h2>{lang === "ar" ? "مرحباً بعودتك" : "Welcome back"}</h2>
+          <p className="login-hint">
+            {lang === "ar"
+              ? "أدخل بياناتك للوصول إلى مساحة المراقبة"
+              : "Enter your credentials to access the workspace"}
+          </p>
+          <label>
+            {lang === "ar" ? "البريد الإلكتروني" : "Email"}
             <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type={visible ? "text" : "password"}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+              type="email"
               required
             />
-            <button type="button" onClick={() => setVisible(!visible)}>
-              {visible ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </span>
-        </label>
-        {error && <p className="form-error">{error}</p>}
-        <button className="primary-button login-button" type="submit">
-          {lang === "ar" ? "تسجيل الدخول" : "Sign in"}{" "}
-          <ArrowUpRight size={16} />
-        </button>
-      </form>
+          </label>
+          <label>
+            {lang === "ar" ? "كلمة المرور" : "Password"}
+            <span className="password-input">
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type={visible ? "text" : "password"}
+                required
+              />
+              <button type="button" onClick={() => setVisible(!visible)}>
+                {visible ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </span>
+          </label>
+          <label>
+            {lang === "ar" ? "رمز التحقق (2FA - اختياري)" : "2FA code (optional)"}
+            <input
+              value={totpCode}
+              onChange={(event) => setTotpCode(event.target.value)}
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="000000"
+            />
+          </label>
+          {error && <p className="form-error">{error}</p>}
+          {notice && <p className="connection-message">{notice}</p>}
+          <button className="primary-button login-button" type="submit">
+            {lang === "ar" ? "تسجيل الدخول" : "Sign in"}{" "}
+            <ArrowUpRight size={16} />
+          </button>
+          <button type="button" className="text-button" onClick={() => { setError(""); setNotice(""); setMode("forgot"); }}>
+            {lang === "ar" ? "نسيت كلمة المرور؟" : "Forgot password?"}
+          </button>
+        </form>
+      ) : mode === "forgot" ? (
+        <form className="login-card" onSubmit={submitForgot}>
+          <button type="button" className="language-button" onClick={toggle}>
+            {lang === "ar" ? "English" : "العربية"}
+          </button>
+          <p className="eyebrow">{lang === "ar" ? "استعادة كلمة المرور" : "Password recovery"}</p>
+          <h2>{lang === "ar" ? "نسيت كلمة المرور" : "Forgot password"}</h2>
+          <p className="login-hint">
+            {lang === "ar"
+              ? "أدخل بريدك الإلكتروني وسنرسل رابط إعادة تعيين صالح لمدة 15 دقيقة."
+              : "Enter your email and we'll send a reset link valid for 15 minutes."}
+          </p>
+          <label>
+            {lang === "ar" ? "البريد الإلكتروني" : "Email"}
+            <input value={email} onChange={(event) => setEmail(event.target.value)} type="email" required />
+          </label>
+          {error && <p className="form-error">{error}</p>}
+          {notice && <p className="connection-message">{notice}</p>}
+          <button className="primary-button login-button" type="submit">
+            {lang === "ar" ? "إرسال رابط الاستعادة" : "Send reset link"} <ArrowUpRight size={16} />
+          </button>
+          <button type="button" className="text-button" onClick={() => { setError(""); setNotice(""); setMode("login"); }}>
+            {lang === "ar" ? "العودة لتسجيل الدخول" : "Back to sign in"}
+          </button>
+        </form>
+      ) : (
+        <form className="login-card" onSubmit={submitReset}>
+          <button type="button" className="language-button" onClick={toggle}>
+            {lang === "ar" ? "English" : "العربية"}
+          </button>
+          <p className="eyebrow">{lang === "ar" ? "تعيين كلمة مرور جديدة" : "Set a new password"}</p>
+          <h2>{lang === "ar" ? "إعادة تعيين كلمة المرور" : "Reset password"}</h2>
+          <label>
+            {lang === "ar" ? "رمز إعادة التعيين" : "Reset token"}
+            <input value={resetToken} onChange={(event) => setResetToken(event.target.value)} required />
+          </label>
+          <label>
+            {lang === "ar" ? "كلمة المرور الجديدة" : "New password"}
+            <input value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} type="password" minLength={8} required />
+          </label>
+          {error && <p className="form-error">{error}</p>}
+          {notice && <p className="connection-message">{notice}</p>}
+          <button className="primary-button login-button" type="submit">
+            {lang === "ar" ? "تحديث كلمة المرور" : "Update password"} <ArrowUpRight size={16} />
+          </button>
+          <button type="button" className="text-button" onClick={() => { setError(""); setNotice(""); setMode("login"); }}>
+            {lang === "ar" ? "العودة لتسجيل الدخول" : "Back to sign in"}
+          </button>
+        </form>
+      )}
     </main>
   );
 }
@@ -672,6 +801,23 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
     </div>
   );
 }
+type PostDetail = Post & {
+  sentiment?: string | null;
+  sentiment_score?: number | null;
+  entities?: string[] | Record<string, unknown> | null;
+  extracted_ocr_text?: string | null;
+  video_transcript?: string | null;
+  media_status?: "pending" | "completed" | "failed" | string;
+};
+
+const SEVERITY_METER: Record<string, number> = { low: 25, medium: 50, high: 75, critical: 100 };
+
+function extractYoutubeVideoId(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const match = url.match(/(?:v=|\/shorts\/|youtu\.be\/|\/embed\/)([A-Za-z0-9_-]{11})/);
+  return match ? match[1] : null;
+}
+
 function PostDetailDialog({
   post,
   token,
@@ -684,6 +830,9 @@ function PostDetailDialog({
   const [logs, setLogs] = useState<AuditRecord[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [detail, setDetail] = useState<PostDetail>(post);
+  const [tab, setTab] = useState<"original" | "ocr" | "transcript">("original");
+  const [zoomImage, setZoomImage] = useState<string | null>(null);
   const loadLogs = () =>
     get<AuditRecord[]>(
       `/api/v1/audit-logs/topics/${post.topic_id}?limit=100`,
@@ -696,6 +845,11 @@ function PostDetailDialog({
   useEffect(() => {
     void loadLogs();
   }, [post.id, post.topic_id, token]);
+  useEffect(() => {
+    get<PostDetail>(`/api/v1/posts/${post.id}`, token)
+      .then(setDetail)
+      .catch(() => setDetail(post));
+  }, [post.id, token]);
   const mark = async (field: "is_important" | "is_dangerous") => {
     setSaving(true);
     setError("");
@@ -720,6 +874,12 @@ function PostDetailDialog({
       setSaving(false);
     }
   };
+  const entityTags: string[] = Array.isArray(detail.entities)
+    ? (detail.entities as unknown[]).map((entry) => String(entry))
+    : detail.entities && typeof detail.entities === "object"
+      ? Object.keys(detail.entities as Record<string, unknown>)
+      : [];
+  const meterValue = SEVERITY_METER[detail.severity_level ?? ""] ?? 0;
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="post-dialog" onClick={(event) => event.stopPropagation()}>
@@ -731,7 +891,6 @@ function PostDetailDialog({
         <p className="dialog-source">
           {post.author} · {new Date(post.scraped_at).toLocaleString("ar-EG")}
         </p>
-        <p className="dialog-content">{post.content}</p>
         <div className="config-actions">
           <button
             className={`icon-button ${post.is_important ? "priority-active" : ""}`}
@@ -753,19 +912,82 @@ function PostDetailDialog({
           </button>
         </div>
         {error && <div className="data-error">{error}</div>}
-        {post.media_urls?.length ? (
+        {post.platform === "youtube" && extractYoutubeVideoId(post.post_url) ? (
+          <div className="media-grid">
+            <iframe
+              className="video-embed"
+              src={`https://www.youtube.com/embed/${extractYoutubeVideoId(post.post_url)}`}
+              title="YouTube video player"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          </div>
+        ) : post.media_urls?.length ? (
           <div className="media-grid">
             {post.media_urls.map((media, index) =>
               typeof media === "string" && /\.(mp4|webm)(\?|$)/i.test(media) ? (
                 <video key={index} src={media} controls />
               ) : typeof media === "string" ? (
-                <img key={index} src={media} alt="وسائط الخبر" />
+                <img
+                  key={index}
+                  src={media}
+                  alt="وسائط الخبر"
+                  onClick={() => setZoomImage(media)}
+                  style={{ cursor: "zoom-in" }}
+                />
               ) : null,
             )}
           </div>
         ) : (
           <div className="media-empty">لا توجد صورة أو فيديو لهذا الخبر.</div>
         )}
+        <div className="config-tabs">
+          <button className={tab === "original" ? "selected" : ""} onClick={() => setTab("original")}>
+            النص الأصلي
+          </button>
+          <button className={tab === "ocr" ? "selected" : ""} onClick={() => setTab("ocr")}>
+            نص الصور (OCR)
+          </button>
+          <button className={tab === "transcript" ? "selected" : ""} onClick={() => setTab("transcript")}>
+            نص الصوت/الفيديو
+          </button>
+        </div>
+        <p className="dialog-content">
+          {tab === "original"
+            ? post.content
+            : tab === "ocr"
+              ? (detail.extracted_ocr_text || (detail.media_status === "pending" ? "جارٍ المعالجة..." : "لا يوجد نص مستخرج من الصور."))
+              : (detail.video_transcript || (detail.media_status === "pending" ? "جارٍ المعالجة..." : "لا يوجد نص مفرغ من الصوت/الفيديو."))}
+        </p>
+        <div className="panel dialog-analytics">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">Combined analytics</p>
+              <h3>تحليل موحّد للنص والوسائط</h3>
+            </div>
+            <Activity size={18} />
+          </div>
+          <div className="config-row">
+            <span>
+              <strong>المشاعر</strong>
+              <small>{detail.sentiment ?? "غير محدد"}{detail.sentiment_score != null ? ` (${detail.sentiment_score})` : ""}</small>
+            </span>
+            <span className="badge badge-neutral">{detail.media_status ?? "pending"}</span>
+          </div>
+          <div className="severity-meter">
+            <div className="severity-meter-track">
+              <div className="severity-meter-fill" style={{ width: `${meterValue}%` }} />
+            </div>
+            <small>{detail.severity_level ?? "غير محلل"}</small>
+          </div>
+          {entityTags.length > 0 && (
+            <div className="entity-tags">
+              {entityTags.map((tag) => (
+                <span className="badge badge-neutral" key={tag}>{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
         {post.post_url && (
           <a
             className="wide-ghost"
@@ -812,6 +1034,11 @@ function PostDetailDialog({
           )}
         </div>
       </div>
+      {zoomImage && (
+        <div className="modal-backdrop image-lightbox" onClick={() => setZoomImage(null)}>
+          <img src={zoomImage} alt="تكبير الصورة" onClick={(event) => event.stopPropagation()} />
+        </div>
+      )}
     </div>
   );
 }
@@ -957,6 +1184,696 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
     </div>
   );
 }
+function statusLabel(status: string | undefined, lang: Lang) {
+  const map = lang === "ar"
+    ? { pending: "قيد المراجعة", approved: "تمت الموافقة", rejected: "مرفوض" }
+    : { pending: "Pending", approved: "Approved", rejected: "Rejected" };
+  return map[(status ?? "pending") as "pending" | "approved" | "rejected"] ?? status;
+}
+
+function ApprovalsPanel({ token, lang }: { token: string; lang: Lang }) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState<number | null>(null);
+  const [summary, setSummary] = useState<ApprovalsSummary>({ sources: [], keywords: [] });
+  const [error, setError] = useState("");
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  const load = (selected = topicId) => {
+    if (!selected) return;
+    void get<ApprovalsSummary>(`/api/v1/topics/${selected}/approvals`, token)
+      .then(setSummary)
+      .catch((cause) => {
+        setSummary({ sources: [], keywords: [] });
+        setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر تحميل الطلبات." : "Unable to load approvals."));
+      });
+  };
+  useEffect(() => {
+    void get<Topic[]>("/api/v1/topics", token)
+      .then((items) => {
+        setTopics(items);
+        setTopicId((current) => current ?? items[0]?.id ?? null);
+      })
+      .catch(() => setTopics([]));
+  }, [token]);
+  useEffect(() => { load(); }, [topicId, token]);
+
+  const decide = async (kind: "sources" | "keywords", item: Item, decision: "approved" | "rejected") => {
+    setBusyId(item.id);
+    try {
+      await request<Item>(`/api/v1/approvals/${kind}/${item.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ status: decision }),
+      });
+      load();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر تحديث الطلب." : "Unable to update proposal."));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">{lang === "ar" ? "الموافقات" : "APPROVALS"}</p>
+          <h1>{lang === "ar" ? "طلبات المراقبين المعلقة" : "Pending observer requests"}</h1>
+          <p className="subhead">
+            {lang === "ar"
+              ? "راجع مقترحات الروابط والكلمات المفتاحية قبل تفعيلها في عملية الجمع."
+              : "Review proposed sources and keywords before they activate in the scraping pipeline."}
+          </p>
+        </div>
+        <select value={topicId ?? ""} onChange={(event) => setTopicId(Number(event.target.value))}>
+          {topics.map((topic) => (
+            <option value={topic.id} key={topic.id}>{topic.title}</option>
+          ))}
+        </select>
+      </div>
+      {error && <div className="data-error">{error}</div>}
+      <div className="panel">
+        <div className="panel-heading">
+          <h2>{lang === "ar" ? "مصادر مقترحة" : "Proposed sources"}</h2>
+        </div>
+        <div className="config-list">
+          {summary.sources.length === 0 && (
+            <div className="empty-state">{lang === "ar" ? "لا توجد طلبات معلقة." : "No pending proposals."}</div>
+          )}
+          {summary.sources.map((item) => (
+            <div className="config-row" key={item.id}>
+              <span className="config-icon">{item.platform?.[0]?.toUpperCase() ?? "#"}</span>
+              <span>
+                <strong>{item.name}</strong>
+                <small>{item.url_or_handle}</small>
+              </span>
+              <span className="config-actions">
+                <button className="icon-button" title={lang === "ar" ? "قبول" : "Approve"} disabled={busyId === item.id} onClick={() => decide("sources", item, "approved")}>
+                  <Check size={15} />
+                </button>
+                <button className="icon-button danger-button" title={lang === "ar" ? "رفض" : "Reject"} disabled={busyId === item.id} onClick={() => decide("sources", item, "rejected")}>
+                  <X size={15} />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="panel">
+        <div className="panel-heading">
+          <h2>{lang === "ar" ? "كلمات مفتاحية مقترحة" : "Proposed keywords"}</h2>
+        </div>
+        <div className="config-list">
+          {summary.keywords.length === 0 && (
+            <div className="empty-state">{lang === "ar" ? "لا توجد طلبات معلقة." : "No pending proposals."}</div>
+          )}
+          {summary.keywords.map((item) => (
+            <div className="config-row" key={item.id}>
+              <span className="config-icon">#</span>
+              <span>
+                <strong>{item.word_or_phrase}</strong>
+                <small>{item.category}</small>
+              </span>
+              <span className="config-actions">
+                <button className="icon-button" title={lang === "ar" ? "قبول" : "Approve"} disabled={busyId === item.id} onClick={() => decide("keywords", item, "approved")}>
+                  <Check size={15} />
+                </button>
+                <button className="icon-button danger-button" title={lang === "ar" ? "رفض" : "Reject"} disabled={busyId === item.id} onClick={() => decide("keywords", item, "rejected")}>
+                  <X size={15} />
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProposalsPanel({ token, lang }: { token: string; lang: Lang }) {
+  const [tab, setTab] = useState<"submit" | "mine">("submit");
+  const [kind, setKind] = useState<"sources" | "keywords">("sources");
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState<number | null>(null);
+  const [name, setName] = useState("");
+  const [platform, setPlatform] = useState("rss");
+  const [value, setValue] = useState("");
+  const [mine, setMine] = useState<ApprovalsSummary>({ sources: [], keywords: [] });
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void get<Topic[]>("/api/v1/topics", token)
+      .then((items) => {
+        setTopics(items);
+        setTopicId((current) => current ?? items[0]?.id ?? null);
+      })
+      .catch(() => setTopics([]));
+  }, [token]);
+
+  const loadMine = () => {
+    if (!topicId) return;
+    void get<ApprovalsSummary>(`/api/v1/topics/${topicId}/my-proposals`, token)
+      .then(setMine)
+      .catch(() => setMine({ sources: [], keywords: [] }));
+  };
+  useEffect(() => { if (tab === "mine") loadMine(); }, [tab, topicId]);
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!topicId) return;
+    setError("");
+    setMessage("");
+    const body = kind === "sources"
+      ? { name, platform, url_or_handle: value, target_type: "url", is_active: true }
+      : { word_or_phrase: value, category: "general", is_active: true };
+    try {
+      await request<Item>(`/api/v1/topics/${topicId}/proposals/${kind}`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      setName("");
+      setValue("");
+      setMessage(lang === "ar" ? "تم إرسال المقترح للمراجعة." : "Proposal submitted for review.");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر إرسال المقترح." : "Unable to submit proposal."));
+    }
+  };
+
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">{lang === "ar" ? "المقترحات" : "PROPOSALS"}</p>
+          <h1>{lang === "ar" ? "تقديم مصدر أو كلمة مفتاحية" : "Submit a source or keyword"}</h1>
+          <p className="subhead">
+            {lang === "ar"
+              ? "سيتم مراجعة المقترحات من قبل مدير الموضوع قبل تفعيلها."
+              : "Proposals are reviewed by the topic manager before activation."}
+          </p>
+        </div>
+        <select value={topicId ?? ""} onChange={(event) => setTopicId(Number(event.target.value))}>
+          {topics.map((topic) => (
+            <option value={topic.id} key={topic.id}>{topic.title}</option>
+          ))}
+        </select>
+      </div>
+      <div className="config-tabs">
+        <button className={tab === "submit" ? "selected" : ""} onClick={() => setTab("submit")}>
+          {lang === "ar" ? "تقديم مقترح" : "Submit proposal"}
+        </button>
+        <button className={tab === "mine" ? "selected" : ""} onClick={() => setTab("mine")}>
+          {lang === "ar" ? "مقترحاتي" : "My submissions"}
+        </button>
+      </div>
+      {tab === "submit" ? (
+        <form className="panel" onSubmit={submit}>
+          {error && <div className="data-error">{error}</div>}
+          {message && <div className="connection-message">{message}</div>}
+          <div className="config-tabs">
+            <button type="button" className={kind === "sources" ? "selected" : ""} onClick={() => setKind("sources")}>
+              {lang === "ar" ? "مصدر" : "Source"}
+            </button>
+            <button type="button" className={kind === "keywords" ? "selected" : ""} onClick={() => setKind("keywords")}>
+              {lang === "ar" ? "كلمة مفتاحية" : "Keyword"}
+            </button>
+          </div>
+          {kind === "sources" ? (
+            <>
+              <label>
+                {lang === "ar" ? "الاسم" : "Name"}
+                <input value={name} onChange={(event) => setName(event.target.value)} required />
+              </label>
+              <label>
+                {lang === "ar" ? "المنصة" : "Platform"}
+                <select value={platform} onChange={(event) => setPlatform(event.target.value)}>
+                  <option value="rss">RSS</option>
+                  <option value="telegram">Telegram</option>
+                  <option value="facebook">Facebook</option>
+                  <option value="reddit">Reddit</option>
+                  <option value="youtube">YouTube</option>
+                </select>
+              </label>
+              <label>
+                {lang === "ar" ? "الرابط أو المعرف" : "URL or handle"}
+                <input value={value} onChange={(event) => setValue(event.target.value)} required />
+              </label>
+            </>
+          ) : (
+            <label>
+              {lang === "ar" ? "الكلمة أو العبارة" : "Word or phrase"}
+              <input value={value} onChange={(event) => setValue(event.target.value)} required />
+            </label>
+          )}
+          <button className="primary-button" type="submit">
+            <Plus size={16} /> {lang === "ar" ? "إرسال المقترح" : "Submit proposal"}
+          </button>
+        </form>
+      ) : (
+        <div className="panel config-list">
+          {[...mine.sources, ...mine.keywords].length === 0 && (
+            <div className="empty-state">{lang === "ar" ? "لا توجد مقترحات مقدّمة بعد." : "No submissions yet."}</div>
+          )}
+          {mine.sources.map((item) => (
+            <div className="config-row" key={`s-${item.id}`}>
+              <span className="config-icon">{item.platform?.[0]?.toUpperCase() ?? "#"}</span>
+              <span>
+                <strong>{item.name}</strong>
+                <small>{item.url_or_handle}</small>
+              </span>
+              <span className="badge badge-neutral">{statusLabel(item.approval_status, lang)}</span>
+            </div>
+          ))}
+          {mine.keywords.map((item) => (
+            <div className="config-row" key={`k-${item.id}`}>
+              <span className="config-icon">#</span>
+              <span>
+                <strong>{item.word_or_phrase}</strong>
+                <small>{item.category}</small>
+              </span>
+              <span className="badge badge-neutral">{statusLabel(item.approval_status, lang)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function GraphPage({ token, request, lang }: { token: string; request: <T,>(path: string, init?: RequestInit) => Promise<T>; lang: Lang }) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState<number | null>(null);
+  useEffect(() => {
+    void get<Topic[]>("/api/v1/topics", token)
+      .then((items) => {
+        setTopics(items);
+        setTopicId((current) => current ?? items[0]?.id ?? null);
+      })
+      .catch(() => setTopics([]));
+  }, [token]);
+  if (!topicId) {
+    return (
+      <div className="page-content">
+        <div className="panel placeholder-page">
+          <p>{lang === "ar" ? "لا توجد مواضيع متاحة." : "No topics available."}</p>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="page-content graph-page">
+      <div className="page-header">
+        <div />
+        <select value={topicId} onChange={(event) => setTopicId(Number(event.target.value))}>
+          {topics.map((topic) => (
+            <option value={topic.id} key={topic.id}>{topic.title}</option>
+          ))}
+        </select>
+      </div>
+      <PropagationGraphView topicId={topicId} request={request} lang={lang} />
+    </div>
+  );
+}
+
+type ActivityEntry = { id: number; action: string; entity_type: string; created_at: string };
+type ProfileData = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  avatar_url: string | null;
+  job_title: string | null;
+  last_login_at: string | null;
+  password_changed_at: string;
+  totp_enabled: boolean;
+  two_factor_eligible: boolean;
+  activity_score: "high" | "medium" | "low";
+  activity_count_30d: number;
+  recent_activity: ActivityEntry[];
+};
+
+function ActivityBadge({ score, lang }: { score: string; lang: Lang }) {
+  const labelMap = lang === "ar" ? { high: "نشاط مرتفع", medium: "نشاط متوسط", low: "نشاط منخفض" } : { high: "High activity", medium: "Medium activity", low: "Low activity" };
+  return <span className={`badge badge-${score === "high" ? "success" : score === "medium" ? "medium" : "neutral"}`}>{labelMap[score as "high" | "medium" | "low"] ?? score}</span>;
+}
+
+function ProfilePage({ token, lang }: { token: string; lang: Lang }) {
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [fullName, setFullName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [twoFactorModal, setTwoFactorModal] = useState(false);
+  const [qrCode, setQrCode] = useState("");
+  const [secret, setSecret] = useState("");
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+
+  const load = () => {
+    void get<ProfileData>("/api/v1/profile/me", token)
+      .then((data) => {
+        setProfile(data);
+        setFullName(data.full_name);
+        setAvatarUrl(data.avatar_url ?? "");
+        setJobTitle(data.job_title ?? "");
+      })
+      .catch(() => setError(lang === "ar" ? "تعذر تحميل الملف الشخصي." : "Unable to load profile."));
+  };
+  useEffect(() => { load(); }, [token]);
+
+  const saveProfile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      await request<ProfileData>("/api/v1/profile/me", token, {
+        method: "PATCH",
+        body: JSON.stringify({ full_name: fullName, avatar_url: avatarUrl || null, job_title: jobTitle || null }),
+      });
+      setMessage(lang === "ar" ? "تم حفظ الملف الشخصي." : "Profile saved.");
+      load();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حفظ الملف الشخصي." : "Unable to save profile."));
+    }
+  };
+
+  const changePassword = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setMessage("");
+    try {
+      await request<void>("/api/v1/profile/change-password", token, {
+        method: "POST",
+        body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+      });
+      setCurrentPassword("");
+      setNewPassword("");
+      setMessage(lang === "ar" ? "تم تحديث كلمة المرور." : "Password updated.");
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر تحديث كلمة المرور." : "Unable to update password."));
+    }
+  };
+
+  const startTwoFactorSetup = async () => {
+    setError("");
+    try {
+      const data = await request<{ secret: string; qr_code_base64: string }>("/api/v1/profile/2fa/setup", token, { method: "POST" });
+      setSecret(data.secret);
+      setQrCode(data.qr_code_base64);
+      setTwoFactorModal(true);
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر بدء إعداد التحقق الثنائي." : "Unable to start 2FA setup."));
+    }
+  };
+
+  const confirmTwoFactor = async () => {
+    setError("");
+    try {
+      await request<void>("/api/v1/profile/2fa/enable", token, { method: "POST", body: JSON.stringify({ code: twoFactorCode }) });
+      setTwoFactorModal(false);
+      setTwoFactorCode("");
+      setMessage(lang === "ar" ? "تم تفعيل التحقق الثنائي." : "2FA enabled.");
+      load();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "رمز التحقق غير صحيح." : "Invalid verification code."));
+    }
+  };
+
+  const disableTwoFactor = async () => {
+    setError("");
+    try {
+      await request<void>("/api/v1/profile/2fa/disable", token, { method: "POST" });
+      setMessage(lang === "ar" ? "تم إيقاف التحقق الثنائي." : "2FA disabled.");
+      load();
+    } catch (cause) {
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر إيقاف التحقق الثنائي." : "Unable to disable 2FA."));
+    }
+  };
+
+  if (!profile) {
+    return <div className="page-content"><div className="panel placeholder-page">{lang === "ar" ? "جارٍ التحميل..." : "Loading..."}</div></div>;
+  }
+
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">{lang === "ar" ? "الحساب" : "ACCOUNT"}</p>
+          <h1>{lang === "ar" ? "الملف الشخصي والأمان" : "Profile & Security"}</h1>
+          <p className="subhead">{profile.email} · {profile.role}</p>
+        </div>
+        <ActivityBadge score={profile.activity_score} lang={lang} />
+      </div>
+      {error && <div className="data-error">{error}</div>}
+      {message && <div className="connection-message">{message}</div>}
+      <div className="dashboard-grid">
+        <form className="panel chart-card" onSubmit={saveProfile}>
+          <div className="panel-heading">
+            <h2>{lang === "ar" ? "معلومات الملف الشخصي" : "Profile info"}</h2>
+            <UserCog size={18} />
+          </div>
+          <label>
+            {lang === "ar" ? "الاسم الكامل" : "Full name"}
+            <input value={fullName} onChange={(event) => setFullName(event.target.value)} required />
+          </label>
+          <label>
+            {lang === "ar" ? "المسمى الوظيفي" : "Job title"}
+            <input value={jobTitle} onChange={(event) => setJobTitle(event.target.value)} />
+          </label>
+          <label>
+            {lang === "ar" ? "رابط الصورة الرمزية" : "Avatar URL"}
+            <input value={avatarUrl} onChange={(event) => setAvatarUrl(event.target.value)} placeholder="https://..." />
+          </label>
+          <button className="primary-button" type="submit">
+            <Check size={15} /> {lang === "ar" ? "حفظ" : "Save"}
+          </button>
+        </form>
+        <div className="panel signal-panel">
+          <div className="panel-heading">
+            <h2>{lang === "ar" ? "الأمان" : "Security"}</h2>
+            <ShieldCheck size={18} />
+          </div>
+          <form onSubmit={changePassword}>
+            <label>
+              {lang === "ar" ? "كلمة المرور الحالية" : "Current password"}
+              <input value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} type="password" required />
+            </label>
+            <label>
+              {lang === "ar" ? "كلمة المرور الجديدة" : "New password"}
+              <input value={newPassword} onChange={(event) => setNewPassword(event.target.value)} type="password" minLength={8} required />
+            </label>
+            <button className="secondary-button" type="submit">
+              {lang === "ar" ? "تحديث كلمة المرور" : "Update password"}
+            </button>
+          </form>
+          {profile.two_factor_eligible && (
+            <div className="config-row" style={{ marginTop: 16 }}>
+              <span>
+                <strong>{lang === "ar" ? "التحقق الثنائي (2FA)" : "Two-factor authentication"}</strong>
+                <small>{profile.totp_enabled ? (lang === "ar" ? "مفعّل" : "Enabled") : (lang === "ar" ? "غير مفعّل" : "Disabled")}</small>
+              </span>
+              {profile.totp_enabled ? (
+                <button className="secondary-button" onClick={disableTwoFactor}>{lang === "ar" ? "إيقاف" : "Disable"}</button>
+              ) : (
+                <button className="secondary-button" onClick={startTwoFactorSetup}>{lang === "ar" ? "تفعيل" : "Enable"}</button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="panel recent-panel">
+        <div className="panel-heading">
+          <h2>{lang === "ar" ? "آخر النشاطات" : "Recent activity"}</h2>
+          <Activity size={18} />
+        </div>
+        <div className="config-list">
+          {profile.recent_activity.length === 0 && (
+            <div className="empty-state">{lang === "ar" ? "لا يوجد نشاط حديث." : "No recent activity."}</div>
+          )}
+          {profile.recent_activity.map((entry) => (
+            <div className="config-row" key={entry.id}>
+              <span>
+                <strong>{entry.action}</strong>
+                <small>{entry.entity_type}</small>
+              </span>
+              <small>{new Date(entry.created_at).toLocaleString(lang === "ar" ? "ar" : "en")}</small>
+            </div>
+          ))}
+        </div>
+      </div>
+      {twoFactorModal && (
+        <div className="modal-backdrop" onClick={() => setTwoFactorModal(false)}>
+          <div className="source-modal" onClick={(event) => event.stopPropagation()}>
+            <div className="modal-heading">
+              <h2>{lang === "ar" ? "إعداد التحقق الثنائي" : "Set up 2FA"}</h2>
+              <button type="button" className="icon-button" onClick={() => setTwoFactorModal(false)}>
+                <X size={16} />
+              </button>
+            </div>
+            <p>{lang === "ar" ? "امسح رمز QR باستخدام تطبيق المصادقة، ثم أدخل الرمز المكوّن من 6 أرقام." : "Scan the QR code with your authenticator app, then enter the 6-digit code."}</p>
+            {qrCode && <img src={qrCode} alt="2FA QR code" style={{ width: 180, height: 180, margin: "12px auto", display: "block" }} />}
+            <p className="subhead">{lang === "ar" ? "أو أدخل المفتاح يدويًا:" : "Or enter this key manually:"} <code>{secret}</code></p>
+            <label>
+              {lang === "ar" ? "رمز التحقق" : "Verification code"}
+              <input value={twoFactorCode} onChange={(event) => setTwoFactorCode(event.target.value)} maxLength={6} inputMode="numeric" />
+            </label>
+            <button className="primary-button" onClick={confirmTwoFactor}>
+              {lang === "ar" ? "تفعيل" : "Enable"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function QuickIngestModal({ token, lang, onClose }: { token: string; lang: Lang; onClose: () => void }) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState<number | null>(null);
+  const [mode, setMode] = useState<"url" | "file">("url");
+  const [url, setUrl] = useState("");
+  const [backfill, setBackfill] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [caption, setCaption] = useState("");
+  const [stage, setStage] = useState<"idle" | "working" | "done" | "error">("idle");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    void get<Topic[]>("/api/v1/topics", token)
+      .then((items) => {
+        setTopics(items);
+        setTopicId((current) => current ?? items[0]?.id ?? null);
+      })
+      .catch(() => setTopics([]));
+  }, [token]);
+
+  const runWithProgress = async (task: () => Promise<string>) => {
+    setStage("working");
+    setMessage(lang === "ar" ? "جارٍ التحليل..." : "Analyzing...");
+    const progressTimer = window.setTimeout(
+      () => setMessage(lang === "ar" ? "جارٍ تشغيل OCR/Whisper..." : "Running OCR/Whisper..."),
+      900,
+    );
+    try {
+      const summary = await task();
+      setStage("done");
+      setMessage(summary);
+    } catch (cause) {
+      setStage("error");
+      setMessage(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر الإدراج." : "Ingestion failed."));
+    } finally {
+      window.clearTimeout(progressTimer);
+    }
+  };
+
+  const submitUrl = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!topicId) return;
+    await runWithProgress(async () => {
+      const result = await request<{ saved: number; platform: string }>("/api/v1/ingestion/quick-url", token, {
+        method: "POST",
+        body: JSON.stringify({ topic_id: topicId, url, backfill }),
+      });
+      return lang === "ar"
+        ? `تم إدراج ${result.saved} منشور (${result.platform}).`
+        : `Ingested ${result.saved} post(s) from ${result.platform}.`;
+    });
+  };
+
+  const submitFile = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!topicId || !file) return;
+    await runWithProgress(async () => {
+      const form = new FormData();
+      form.append("topic_id", String(topicId));
+      form.append("caption", caption);
+      form.append("file", file);
+      const result = await request<{ media_status: string }>("/api/v1/ingestion/quick-file", token, {
+        method: "POST",
+        body: form,
+      });
+      return lang === "ar" ? `تم الإدراج (${result.media_status}).` : `Ingested (${result.media_status}).`;
+    });
+  };
+
+  const reset = () => {
+    setUrl("");
+    setFile(null);
+    setCaption("");
+    setStage("idle");
+    setMessage("");
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="source-modal quick-ingest-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="modal-heading">
+          <h2>{lang === "ar" ? "إدراج سريع" : "Quick Ingest"}</h2>
+          <button type="button" className="icon-button" onClick={onClose}>
+            <X size={16} />
+          </button>
+        </div>
+        <p className="subhead">
+          {lang === "ar"
+            ? "الصق رابط منشور/قناة أو ارفع صورة/فيديو للمعالجة الفورية دون انتظار الموافقة."
+            : "Paste a post/channel URL or upload an image/video for immediate processing, no approval needed."}
+        </p>
+        <label>
+          {lang === "ar" ? "الموضوع" : "Topic"}
+          <select value={topicId ?? ""} onChange={(event) => setTopicId(Number(event.target.value))}>
+            {topics.map((topic) => (
+              <option value={topic.id} key={topic.id}>{topic.title}</option>
+            ))}
+          </select>
+        </label>
+        <div className="config-tabs">
+          <button type="button" className={mode === "url" ? "selected" : ""} onClick={() => { setMode("url"); reset(); }}>
+            {lang === "ar" ? "رابط" : "URL"}
+          </button>
+          <button type="button" className={mode === "file" ? "selected" : ""} onClick={() => { setMode("file"); reset(); }}>
+            {lang === "ar" ? "رفع ملف" : "Upload file"}
+          </button>
+        </div>
+        {mode === "url" ? (
+          <form onSubmit={submitUrl}>
+            <label>
+              {lang === "ar" ? "رابط المنشور/القناة" : "Post/channel URL"}
+              <input value={url ?? ""} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." required />
+            </label>
+            <label className="quick-ingest-checkbox">
+              <input type="checkbox" checked={backfill ?? false} onChange={(event) => setBackfill(event.target.checked)} />
+              {lang === "ar" ? "جلب المنشورات التاريخية (آخر 50 عنصر)" : "Fetch historical posts (backfill last 50 items)"}
+            </label>
+            <button className="primary-button" type="submit" disabled={stage === "working"}>
+              {stage === "working" ? <span className="loading-spinner" /> : <Plus size={15} />}
+              {lang === "ar" ? "إدراج" : "Ingest"}
+            </button>
+          </form>
+        ) : (
+          <form onSubmit={submitFile}>
+            <label className="knowledge-file-field">
+              {lang === "ar" ? "الملف (صورة أو فيديو)" : "File (image or video)"}
+              <input type="file" accept="image/*,video/*,audio/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            </label>
+            <label>
+              {lang === "ar" ? "تعليق (اختياري)" : "Caption (optional)"}
+              <input value={caption ?? ""} onChange={(event) => setCaption(event.target.value)} />
+            </label>
+            <button className="primary-button" type="submit" disabled={stage === "working" || !file}>
+              {stage === "working" ? <span className="loading-spinner" /> : <Plus size={15} />}
+              {lang === "ar" ? "إدراج" : "Ingest"}
+            </button>
+          </form>
+        )}
+        {message && (
+          <div className={stage === "error" ? "data-error" : "connection-message"}>{message}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function Monitoring({ token, lang }: { token: string; lang: Lang }) {
   const [tab, setTab] = useState<"sources" | "keywords">("sources");
   const [items, setItems] = useState<Item[]>([]);
@@ -1592,10 +2509,25 @@ export default function Home() {
   };
   const adminRequest = <T,>(path: string, init?: RequestInit) =>
     request<T>(path, token, init);
+  const isRestricted = role === "observer" || role === "analyst" || role === "topic_monitor";
+  const isManager = role === "topic_manager" || role === "topic_admin" || role === "super_admin";
+  const [pendingCount, setPendingCount] = useState(0);
+  const [quickIngestOpen, setQuickIngestOpen] = useState(false);
+  useEffect(() => {
+    if (!isManager || !token) return;
+    void get<ApprovalsSummary>("/api/v1/topics/1/approvals", token)
+      .then((data) => setPendingCount(data.sources.length + data.keywords.length))
+      .catch(() => setPendingCount(0));
+  }, [token, isManager, page]);
   if (!token) return <Login lang={lang} onLogin={onLogin} toggle={toggle} />;
   const t = labels[lang];
+  const allowedNavIds: readonly string[] = isRestricted
+    ? ["overview", "feed"]
+    : ["overview", "feed", "graph", "automation", "knowledge", "management", "audit", "prompts"];
   const navigationWithAdmin = [
-    ...navigation[lang],
+    ...navigation[lang].filter(([id]) => allowedNavIds.includes(id)),
+    ...(isRestricted ? ([["proposals", t.proposals, Plus]] as const) : []),
+    ...(isManager ? ([["approvals", t.approvals, ShieldCheck]] as const) : []),
     ...(role === "super_admin"
       ? ([
           ["topics", "إدارة المواضيع", Database],
@@ -1625,10 +2557,17 @@ export default function Home() {
             >
               <Icon size={18} />
               <span>{label}</span>
+              {id === "approvals" && pendingCount > 0 && (
+                <em className="nav-count">{pendingCount}</em>
+              )}
             </button>
           ))}
         </nav>
         <div className="sidebar-bottom">
+          <button className="nav-item" onClick={() => setQuickIngestOpen(true)}>
+            <Plus size={18} />
+            <span>{lang === "ar" ? "إدراج سريع" : "Quick Ingest"}</span>
+          </button>
           <button className="nav-item">
             <Settings2 size={18} />
             <span>إعدادات مساحة العمل</span>
@@ -1650,10 +2589,13 @@ export default function Home() {
               <Search size={17} />
               <input placeholder={lang === "ar" ? "بحث" : "Search"} />
             </label>
+            <button className="secondary-button" onClick={() => setQuickIngestOpen(true)}>
+              <Plus size={15} /> {lang === "ar" ? "إدراج سريع" : "Quick Ingest"}
+            </button>
             <button className="language-button" onClick={toggle}>
               {lang === "ar" ? "English" : "العربية"}
             </button>
-            <span className="top-avatar">AM</span>
+            <button className="top-avatar" style={{ border: 0 }} onClick={() => setPage("profile")} title={t.profile}>AM</button>
           </div>
         </header>
         {page === "overview" ? (
@@ -1672,7 +2614,7 @@ export default function Home() {
         ) : page === "feed" ? (
           <Feed token={token} lang={lang} />
         ) : page === "graph" ? (
-          <PropagationGraphView topicId={1} request={adminRequest} lang={lang} />
+          <GraphPage token={token} request={adminRequest} lang={lang} />
         ) : page === "management" ? (
           <Monitoring token={token} lang={lang} />
         ) : page === "automation" ? (
@@ -1685,6 +2627,12 @@ export default function Home() {
           <UserManagement request={adminRequest} role={role} />
         ) : page === "audit" ? (
           <AuditDashboard request={adminRequest} role={role} />
+        ) : page === "approvals" && isManager ? (
+          <ApprovalsPanel token={token} lang={lang} />
+        ) : page === "proposals" && isRestricted ? (
+          <ProposalsPanel token={token} lang={lang} />
+        ) : page === "profile" ? (
+          <ProfilePage token={token} lang={lang} />
         ) : page === "prompts" && (role === "super_admin" || role === "topic_manager") ? (
           <div className="page-content prompt-settings-page">
             <PromptSettingsPanel token={token} role={role} lang={lang} section="connection" />
@@ -1702,6 +2650,9 @@ export default function Home() {
           </div>
         )}
       </section>
+      {quickIngestOpen && (
+        <QuickIngestModal token={token} lang={lang} onClose={() => setQuickIngestOpen(false)} />
+      )}
     </main>
   );
 }

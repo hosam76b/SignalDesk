@@ -18,6 +18,10 @@ engine = create_engine(
     settings.db_url,
     connect_args={},
     poolclass=None,
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=10,
+    pool_pre_ping=True,
     echo=False,
     future=True,
 )

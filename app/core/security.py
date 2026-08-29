@@ -117,3 +117,37 @@ def decode_token(token: str) -> Optional[Dict[str, Any]]:
         return verify_token(token)
     except JWTError:
         return None
+
+
+PASSWORD_RESET_TOKEN_TYPE = "password_reset"
+
+
+def create_password_reset_token(user_id: int, password_changed_at: datetime) -> str:
+    """
+    Create a signed, time-limited (15 min default), single-use password reset token.
+
+    Single-use is enforced by binding the token to the user's current
+    `password_changed_at` timestamp: once the password is changed, the
+    timestamp advances and any previously issued token becomes invalid.
+    """
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.password_reset_expire_minutes)
+    payload = {
+        "sub": str(user_id),
+        "type": PASSWORD_RESET_TOKEN_TYPE,
+        "pwd_ts": password_changed_at.isoformat(),
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def verify_password_reset_token(token: str, password_changed_at: datetime) -> Optional[int]:
+    """Return the user id encoded in a valid, unused password reset token, or None."""
+    payload = decode_token(token)
+    if payload is None or payload.get("type") != PASSWORD_RESET_TOKEN_TYPE:
+        return None
+    if payload.get("pwd_ts") != password_changed_at.isoformat():
+        return None
+    try:
+        return int(payload["sub"])
+    except (TypeError, ValueError, KeyError):
+        return None

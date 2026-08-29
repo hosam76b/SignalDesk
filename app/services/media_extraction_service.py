@@ -83,6 +83,26 @@ class MediaExtractionService:
             logger.debug("OCR extraction skipped/failed for %s: %s", image_url[:80], exc)
             return None
 
+    async def extract_image_ocr_from_path(self, file_path: str) -> str | None:
+        """Run local OCR directly on a file already stored on disk (e.g. Quick Ingest uploads)."""
+        if not self.ocr_enabled or not pytesseract:
+            return None
+
+        def _run_ocr(path: str) -> str:
+            img = Image.open(path).convert("RGB")
+            try:
+                return pytesseract.image_to_string(img, lang="ara+eng")
+            except Exception:
+                return pytesseract.image_to_string(img)
+
+        try:
+            text = await asyncio.to_thread(_run_ocr, file_path)
+            cleaned = " ".join(text.strip().split())
+            return cleaned if len(cleaned) >= 5 else None
+        except Exception as exc:
+            logger.debug("OCR extraction skipped/failed for local file %s: %s", file_path, exc)
+            return None
+
     async def extract_video_transcript(self, url_or_id: str, platform: str = "") -> str | None:
         """Extract spoken dialogue or subtitles from YouTube/video URLs."""
         if platform == "youtube" or "youtube.com" in url_or_id or "youtu.be" in url_or_id:
@@ -90,7 +110,7 @@ class MediaExtractionService:
 
         # Local audio transcription with faster-whisper if model available
         whisper = self._get_whisper_model()
-        if whisper is not None and url_or_id.endswith((".mp3", ".wav", ".m4a", ".mp4")):
+        if whisper is not None and url_or_id.lower().endswith((".mp3", ".wav", ".m4a", ".mp4", ".mov", ".webm", ".mkv")):
             try:
                 def _transcribe(media_path_or_url: str) -> str:
                     segments, _ = whisper.transcribe(media_path_or_url, beam_size=2)

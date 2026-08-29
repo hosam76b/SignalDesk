@@ -28,6 +28,10 @@ class Keyword(Base):
     word_or_phrase = Column(String(500), nullable=False, unique=True, index=True)
     category = Column(String(100), default="general", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    approval_status = Column(String(20), default="approved", nullable=False, index=True)
+    proposed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_by_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
     topic = relationship("Topic", back_populates="keywords")
 

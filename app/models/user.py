@@ -32,6 +32,12 @@ class User(Base):
     full_name = Column(String(255), nullable=False)
     role = Column(String(50), default="observer", nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
+    avatar_url = Column(String(500), nullable=True)
+    job_title = Column(String(255), nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
+    password_changed_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    totp_secret = Column(String(64), nullable=True)
+    totp_enabled = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Relationship to reports created by this user

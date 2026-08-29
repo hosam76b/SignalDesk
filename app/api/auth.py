@@ -3,19 +3,24 @@ Authentication API endpoints.
 Handles user login, token generation, and current user retrieval with database integration.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, status
+from fastapi import APIRouter, HTTPException, Depends, status, Request, BackgroundTasks
 from sqlalchemy.orm import Session
-from pydantic import BaseModel, ConfigDict, EmailStr
-from datetime import timedelta
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from datetime import datetime, timedelta, timezone
 
 from app.db.session import get_db
 from app.models.user import User
 from app.core.deps import get_current_user
+from app.core.rate_limit import limiter, AUTH_RATE_LIMIT
+from app.services.audit_service import record_audit
+from app.services.email import send_password_reset_email
 from app.core.security import (
     hash_password,
     verify_password,
     create_access_token,
-    decode_token
+    decode_token,
+    create_password_reset_token,
+    verify_password_reset_token,
 )
 from config import settings
 
@@ -31,6 +36,7 @@ class LoginRequest(BaseModel):
 
     email: str
     password: str
+    totp_code: str | None = None
 
     model_config = ConfigDict(json_schema_extra={
             "example": {
@@ -91,7 +97,8 @@ class UserResponse(BaseModel):
 # ============================================================================
 
 @router.post("/login", response_model=TokenResponse, status_code=status.HTTP_200_OK)
-async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
+@limiter.limit(AUTH_RATE_LIMIT)
+async def login(request: Request, credentials: LoginRequest, db: Session = Depends(get_db)):
     """
     User login endpoint.
     Authenticates user by email and password, returns JWT token.
@@ -121,6 +128,14 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
             detail="User account is inactive"
         )
 
+    if user.totp_enabled:
+        import pyotp
+        if not credentials.totp_code or not pyotp.totp.TOTP(user.totp_secret).verify(credentials.totp_code, valid_window=1):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Valid 2FA code required"
+            )
+
     # Create JWT token
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     token_data = {
@@ -129,6 +144,10 @@ async def login(credentials: LoginRequest, db: Session = Depends(get_db)):
         "role": user.role
     }
     access_token = create_access_token(data=token_data, expires_delta=access_token_expires)
+
+    user.last_login_at = datetime.now(timezone.utc)
+    record_audit(db, user_id=user.id, action="login", entity_type="user", details={})
+    db.commit()
 
     return TokenResponse(
         access_token=access_token,
@@ -155,3 +174,67 @@ async def get_me(
         UserResponse: User profile information.
     """
     return UserResponse.model_validate(current_user)
+
+
+# ============================================================================
+# Password Reset Workflow
+# ============================================================================
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+@router.post("/forgot-password", status_code=status.HTTP_202_ACCEPTED)
+@limiter.limit(AUTH_RATE_LIMIT)
+async def forgot_password(
+    request: Request,
+    payload: ForgotPasswordRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Issue a signed, 15-minute, single-use reset token and email it asynchronously.
+
+    Always returns 202 regardless of whether the email exists, to avoid account enumeration.
+    """
+    user = db.query(User).filter(User.email == payload.email).first()
+    if user is not None and user.is_active:
+        reset_token = create_password_reset_token(user.id, user.password_changed_at)
+        background_tasks.add_task(send_password_reset_email, user.email, user.full_name, reset_token)
+    return {"message": "If that email exists, a password reset link has been sent."}
+
+
+@router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit(AUTH_RATE_LIMIT)
+async def reset_password(
+    request: Request,
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """Validate a password reset token and set the new password. The token is single-use."""
+    # The token is scoped to a user id, but we must locate the user before verifying
+    # since verification is bound to that user's current password_changed_at timestamp.
+    raw = decode_token(payload.token)
+    if raw is None or raw.get("type") != "password_reset" or raw.get("sub") is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+    try:
+        user_id = int(raw["sub"])
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    verified_id = verify_password_reset_token(payload.token, user.password_changed_at)
+    if verified_id != user.id:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+
+    user.hashed_password = hash_password(payload.new_password)
+    user.password_changed_at = datetime.now(timezone.utc)
+    record_audit(db, user_id=user.id, action="password_reset", entity_type="user", details={})
+    db.commit()

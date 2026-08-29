@@ -24,6 +24,20 @@ class Settings(BaseSettings):
     secret_key: str = "your-secret-key-change-this-in-production"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    password_reset_expire_minutes: int = 15
+    rate_limit_auth: str = "5/10minute"
+
+    # Email / SMTP Configuration (password reset delivery)
+    mail_enabled: bool = False
+    mail_username: str = ""
+    mail_password: str = ""
+    mail_from: str = "no-reply@signaldesk.local"
+    mail_from_name: str = "Signaldesk"
+    mail_server: str = "smtp.gmail.com"
+    mail_port: int = 587
+    mail_starttls: bool = True
+    mail_ssl_tls: bool = False
+    frontend_url: str = "http://localhost:3000"
 
     # AI Configuration
     ai_provider: str = "ollama"

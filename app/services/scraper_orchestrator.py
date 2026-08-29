@@ -16,7 +16,7 @@ from app.models.post import Post
 from app.models.topic import Topic
 from app.services.scraper_service import ScraperService
 from app.services.webhook_service import dispatch_post_ingested
-from app.services.media_extraction_service import media_extractor
+from app.services.media_processor import schedule_media_processing
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +122,12 @@ class ScraperOrchestrator:
         sources = db.query(MonitoredSource).filter(
             MonitoredSource.topic_id == topic.id,
             MonitoredSource.is_active == True,
+            MonitoredSource.approval_status == "approved",
         ).all()
         keywords = db.query(Keyword).filter(
             Keyword.topic_id == topic.id,
             Keyword.is_active == True,
+            Keyword.approval_status == "approved",
         ).all()
 
         if not sources:
@@ -145,16 +147,9 @@ class ScraperOrchestrator:
                 db.commit()
                 logger.info(f"🔄 Processing source: {source.name} ({source.platform})")
                 posts = await self._scrape_source(source, keyword_list)
-                
-                # Multimodal enrichment (Audio transcription & Image OCR)
-                enriched_posts: list[dict[str, Any]] = []
-                for p in posts:
-                    try:
-                        enriched_posts.append(await media_extractor.enrich_post_multimodal(p))
-                    except Exception as exc:
-                        logger.debug("Media enrichment skipped for post: %s", exc)
-                        enriched_posts.append(p)
-                posts = enriched_posts
+
+                # OCR/audio-transcript enrichment runs later as a background task per
+                # saved post (see _save_posts), so scraping never blocks on it.
 
                 if keyword_list:
                     posts = [post for post in posts if self._matches_keywords(post, keyword_list)]
@@ -284,6 +279,7 @@ class ScraperOrchestrator:
             Number of new posts saved.
         """
         saved_count = 0
+        new_posts: list[Post] = []
 
         for post_data in posts:
             try:
@@ -323,9 +319,11 @@ class ScraperOrchestrator:
                     published_at=post_data.get("published_at", datetime.now(timezone.utc)),
                     scraped_at=datetime.now(timezone.utc),
                     is_flagged=False,
+                    media_status="pending",
                 )
 
                 db.add(new_post)
+                new_posts.append(new_post)
                 saved_count += 1
 
             except Exception as e:
@@ -337,6 +335,11 @@ class ScraperOrchestrator:
             try:
                 db.commit()
                 logger.info(f"💾 Saved {saved_count} new posts to database")
+                # OCR/audio-transcript extraction runs as a per-post background task so
+                # it never blocks the scraping cycle or HTTP workers.
+                for post in new_posts:
+                    if post.media_urls or post.post_url or post.source_url:
+                        schedule_media_processing(post.id)
             except Exception as e:
                 logger.error(f"❌ Error committing posts to database: {str(e)}")
                 db.rollback()

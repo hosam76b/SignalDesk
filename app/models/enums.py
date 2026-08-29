@@ -18,3 +18,9 @@ class TopicRole(str, Enum):
     OBSERVER = "observer"
     TOPIC_ADMIN = "topic_admin"
     TOPIC_MONITOR = "topic_monitor"
+
+
+class ApprovalStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"

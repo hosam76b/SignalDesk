@@ -96,6 +96,10 @@ class SourceOutput(SourceInput):
     status: str
     last_error: str | None = None
     last_error_at: datetime | None = None
+    approval_status: str = "approved"
+    proposed_by_id: int | None = None
+    reviewed_by_id: int | None = None
+    reviewed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -109,8 +113,17 @@ class KeywordInput(BaseModel):
 class KeywordOutput(KeywordInput):
     id: int
     topic_id: int
+    approval_status: str = "approved"
+    proposed_by_id: int | None = None
+    reviewed_by_id: int | None = None
+    reviewed_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class ApprovalsSummary(BaseModel):
+    sources: list[SourceOutput]
+    keywords: list[KeywordOutput]
 
 
 class NewsOutput(BaseModel):
@@ -235,10 +248,18 @@ def list_sources(topic_id: int, db: Session = Depends(get_db), _: User = Depends
 
 
 @router.post("/{topic_id}/sources", response_model=SourceOutput, status_code=status.HTTP_201_CREATED)
-def create_source(topic_id: int, source: SourceInput, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
+def create_source(topic_id: int, source: SourceInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_admin)):
     if db.query(Topic).filter(Topic.id == topic_id).first() is None:
         raise HTTPException(status_code=404, detail="Topic not found")
-    record = MonitoredSource(topic_id=topic_id, status="active", **source.model_dump())
+    record = MonitoredSource(
+        topic_id=topic_id,
+        status="active",
+        approval_status="approved",
+        proposed_by_id=current_user.id,
+        reviewed_by_id=current_user.id,
+        reviewed_at=datetime.now(timezone.utc),
+        **source.model_dump(),
+    )
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -284,10 +305,17 @@ def list_keywords(topic_id: int, db: Session = Depends(get_db), _: User = Depend
 
 
 @router.post("/{topic_id}/keywords", response_model=KeywordOutput, status_code=status.HTTP_201_CREATED)
-def create_keyword(topic_id: int, keyword: KeywordInput, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
+def create_keyword(topic_id: int, keyword: KeywordInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_admin)):
     if db.query(Topic).filter(Topic.id == topic_id).first() is None:
         raise HTTPException(status_code=404, detail="Topic not found")
-    record = Keyword(topic_id=topic_id, **keyword.model_dump())
+    record = Keyword(
+        topic_id=topic_id,
+        approval_status="approved",
+        proposed_by_id=current_user.id,
+        reviewed_by_id=current_user.id,
+        reviewed_at=datetime.now(timezone.utc),
+        **keyword.model_dump(),
+    )
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -313,6 +341,107 @@ def delete_keyword(topic_id: int, keyword_id: int, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Keyword not found")
     db.delete(record)
     db.commit()
+
+
+@router.post("/{topic_id}/proposals/sources", response_model=SourceOutput, status_code=status.HTTP_201_CREATED)
+def propose_source(
+    topic_id: int,
+    source: SourceInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_topic_user),
+):
+    """Observer/analyst proposal for a new monitored source; requires manager approval before activation."""
+    if db.query(Topic).filter(Topic.id == topic_id).first() is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    payload = source.model_dump()
+    payload["is_active"] = False
+    record = MonitoredSource(
+        topic_id=topic_id,
+        status="pending_review",
+        approval_status="pending",
+        proposed_by_id=current_user.id,
+        **payload,
+    )
+    db.add(record)
+    record_audit(
+        db,
+        user_id=current_user.id,
+        topic_id=topic_id,
+        action="source_proposed",
+        entity_type="monitored_source",
+        details={"name": source.name, "platform": source.platform},
+    )
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.post("/{topic_id}/proposals/keywords", response_model=KeywordOutput, status_code=status.HTTP_201_CREATED)
+def propose_keyword(
+    topic_id: int,
+    keyword: KeywordInput,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_topic_user),
+):
+    """Observer/analyst proposal for a new keyword; requires manager approval before activation."""
+    if db.query(Topic).filter(Topic.id == topic_id).first() is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+    payload = keyword.model_dump()
+    payload["is_active"] = False
+    record = Keyword(
+        topic_id=topic_id,
+        approval_status="pending",
+        proposed_by_id=current_user.id,
+        **payload,
+    )
+    db.add(record)
+    record_audit(
+        db,
+        user_id=current_user.id,
+        topic_id=topic_id,
+        action="keyword_proposed",
+        entity_type="keyword",
+        details={"word_or_phrase": keyword.word_or_phrase},
+    )
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+@router.get("/{topic_id}/approvals", response_model=ApprovalsSummary)
+def list_pending_approvals(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_topic_admin),
+):
+    """List pending source/keyword proposals awaiting a topic manager's decision."""
+    sources = db.query(MonitoredSource).filter(
+        MonitoredSource.topic_id == topic_id,
+        MonitoredSource.approval_status == "pending",
+    ).order_by(MonitoredSource.created_at.desc()).all()
+    keywords = db.query(Keyword).filter(
+        Keyword.topic_id == topic_id,
+        Keyword.approval_status == "pending",
+    ).order_by(Keyword.created_at.desc()).all()
+    return ApprovalsSummary(sources=sources, keywords=keywords)
+
+
+@router.get("/{topic_id}/my-proposals", response_model=ApprovalsSummary)
+def list_my_proposals(
+    topic_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_topic_user),
+):
+    """Status tracking panel for the current user's own submitted proposals."""
+    sources = db.query(MonitoredSource).filter(
+        MonitoredSource.topic_id == topic_id,
+        MonitoredSource.proposed_by_id == current_user.id,
+    ).order_by(MonitoredSource.created_at.desc()).all()
+    keywords = db.query(Keyword).filter(
+        Keyword.topic_id == topic_id,
+        Keyword.proposed_by_id == current_user.id,
+    ).order_by(Keyword.created_at.desc()).all()
+    return ApprovalsSummary(sources=sources, keywords=keywords)
 
 
 @router.get("/{topic_id}/news", response_model=list[NewsOutput])
@@ -379,6 +508,15 @@ def export_topic_pdf_report(
     try:
         pdf_bytes = generate_topic_executive_pdf(db, topic_id, requester=current_user)
         filename = f"intelligence_report_topic_{topic_id}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf"
+        record_audit(
+            db,
+            user_id=current_user.id,
+            topic_id=topic_id,
+            action="report_exported",
+            entity_type="report",
+            details={"filename": filename},
+        )
+        db.commit()
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",
@@ -398,4 +536,4 @@ def topic_propagation_graph(
     _: User = Depends(get_current_topic_user),
 ):
     """Retrieve network propagation graph and CIB spread analysis for this topic."""
-    return analyze_topic_propagation_graph(db, topic_id, cib_window_minutes=cib_window_minutes)
+    return analyze_topic_propagation_graph(db, topic_id, cib_window_minutes=cib_window_minutes)

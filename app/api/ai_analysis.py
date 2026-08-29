@@ -13,6 +13,7 @@ from app.models.topic import PromptTemplate, Topic
 from app.models.user import User
 from app.core.deps import get_current_user, get_current_admin_user, get_current_topic_user
 from app.services.ai_orchestrator import ai_orchestrator
+from app.services.audit_service import record_audit
 from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
@@ -193,6 +194,14 @@ def create_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Ses
         is_active=1 if payload.is_active else 0,
     )
     db.add(template)
+    record_audit(
+        db,
+        user_id=current_user.id,
+        topic_id=topic_id,
+        action="prompt_updated",
+        entity_type="prompt_template",
+        details={"name": payload.name},
+    )
     db.commit()
     db.refresh(template)
     return template

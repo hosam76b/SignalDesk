@@ -18,6 +18,9 @@ htmlcov/
 *.sqlite
 *.db
 
+# Quick Ingest uploads
+media_uploads/
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/

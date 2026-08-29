@@ -64,6 +64,9 @@ class Post(Base):
     sentiment = Column(String(20), nullable=True, index=True)
     sentiment_score = Column(Integer, nullable=True)
     entities = Column(JSON, nullable=True)
+    extracted_ocr_text = Column(Text, nullable=True)
+    video_transcript = Column(Text, nullable=True)
+    media_status = Column(String(20), default="pending", nullable=False, index=True)
 
     # Relationships
     source = relationship("MonitoredSource", back_populates="posts")

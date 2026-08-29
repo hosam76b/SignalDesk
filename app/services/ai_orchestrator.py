@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.post import Post
 from app.services.ai_service import analyze_post_content
+from app.services.media_processor import build_combined_text
 from app.services.sentiment import analyze_sentiment
 
 logger = logging.getLogger(__name__)
@@ -44,10 +45,12 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
 
     for post in posts:
         try:
-            local_sentiment = analyze_sentiment(post.content)
+            # Merge raw text with any OCR/audio-transcript results for unified analysis.
+            combined_text = build_combined_text(post)
+            local_sentiment = analyze_sentiment(combined_text)
             post.sentiment = local_sentiment["label"]
             post.sentiment_score = int(float(local_sentiment["score"]) * 100)
-            analysis = analyze_post_content(post.content)
+            analysis = analyze_post_content(combined_text)
             if not analysis["success"]:
                 result["failed"] += 1
                 result["errors"].append({"post_id": post.id, "error": analysis["error"]})

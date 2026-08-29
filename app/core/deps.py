@@ -119,3 +119,49 @@ def get_current_topic_admin(
             detail="Topic administrator privileges required",
         )
     return current_user
+
+
+def require_role(*allowed_roles: str):
+    """Dependency factory: require the current user's normalized role to be one of `allowed_roles`."""
+    normalized_allowed = {normalize_role(role) for role in allowed_roles}
+
+    def _check(current_user: User = Depends(get_current_user)) -> User:
+        if normalize_role(current_user.role) not in normalized_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have the required role for this action",
+            )
+        return current_user
+
+    return _check
+
+
+def require_topic_access(*allowed_roles: str):
+    """Dependency factory: require topic membership (or super admin), optionally restricted to specific topic roles."""
+    normalized_allowed = {normalize_role(role) for role in allowed_roles} if allowed_roles else None
+
+    def _check(
+        topic_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db),
+    ) -> User:
+        if normalize_role(current_user.role) == "super_admin":
+            return current_user
+
+        assignment = db.query(UserTopic).filter(
+            UserTopic.user_id == current_user.id,
+            UserTopic.topic_id == topic_id,
+        ).first()
+        if assignment is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this topic",
+            )
+        if normalized_allowed is not None and normalize_role(assignment.role) not in normalized_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have the required topic role for this action",
+            )
+        return current_user
+
+    return _check

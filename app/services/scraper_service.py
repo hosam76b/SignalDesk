@@ -13,6 +13,7 @@ from typing import Any, Mapping
 
 import feedparser
 import httpx
+from urllib.parse import urlsplit
 
 from config import settings
 from app.services.apify_service import ApifyService
@@ -130,10 +131,34 @@ class ScraperService:
         posts: list[dict[str, Any]] = []
         for entry in feed.entries:
             try:
-                posts.append(self.normalize_post(entry, "rss", url))
+                enriched = dict(entry)
+                enriched["media_urls"] = self._extract_rss_media(entry)
+                posts.append(self.normalize_post(enriched, "rss", url))
             except Exception as exc:
                 logger.warning("Skipping malformed RSS item from %s: %s", url, exc)
         return posts
+
+    @staticmethod
+    def _extract_rss_media(entry: Mapping[str, Any]) -> list[str]:
+        """Pull image/video links out of RSS enclosures, media:content, and media:thumbnail tags."""
+        media: list[str] = []
+        for enclosure in entry.get("enclosures") or []:
+            href = enclosure.get("href") or enclosure.get("url")
+            enclosure_type = str(enclosure.get("type", ""))
+            if href and (not enclosure_type or enclosure_type.startswith(("image/", "video/"))) and href not in media:
+                media.append(href)
+        for link in entry.get("links") or []:
+            if link.get("rel") != "enclosure":
+                continue
+            href = link.get("href")
+            link_type = str(link.get("type", ""))
+            if href and (not link_type or link_type.startswith(("image/", "video/"))) and href not in media:
+                media.append(href)
+        for item in (entry.get("media_content") or []) + (entry.get("media_thumbnail") or []):
+            href = item.get("url")
+            if href and href not in media:
+                media.append(href)
+        return media
 
     def scrape_reddit(self, subreddit: str, keywords: list[str] | None = None) -> list[dict[str, Any]]:
         """Fetch the newest public Reddit posts through the RSS endpoint."""
@@ -234,7 +259,7 @@ class ScraperService:
         return cleaned.removeprefix("r/").strip("/")
 
     def scrape_youtube(self, channel_id_or_url: str, _: list[str] | None = None) -> list[dict[str, Any]]:
-        """Extract channel or video metadata with yt-dlp."""
+        """Extract real per-video metadata with yt-dlp (not the channel's tab stubs)."""
         import yt_dlp
 
         target = channel_id_or_url.strip()
@@ -242,6 +267,14 @@ class ScraperService:
             raise ValueError("YouTube channel URL or ID is empty")
         if not target.startswith(("http://", "https://")):
             target = f"https://www.youtube.com/channel/{target}"
+
+        # A bare channel/handle URL (no tab) makes yt-dlp list its tabs
+        # (Videos/Shorts/Live) as flat stub entries instead of real videos.
+        known_tabs = ("/videos", "/shorts", "/streams", "/playlists", "/watch", "/community")
+        if any(marker in target for marker in ("youtube.com/@", "youtube.com/channel/", "youtube.com/c/")):
+            path = urlsplit(target).path.rstrip("/")
+            if not any(path.endswith(tab) for tab in known_tabs):
+                target = target.rstrip("/") + "/videos"
 
         options = {
             "quiet": True,
@@ -264,7 +297,15 @@ class ScraperService:
             if not entry:
                 continue
             video_id = entry.get("id", "")
-            url = entry.get("webpage_url") or (f"https://www.youtube.com/watch?v={video_id}" if video_id else channel_id_or_url)
+            # Flat extraction exposes the real link under "url", not "webpage_url".
+            url = entry.get("url") or entry.get("webpage_url")
+            if not url or not str(url).startswith(("http://", "https://")):
+                url = f"https://www.youtube.com/watch?v={video_id}" if video_id else channel_id_or_url
+            # Flat extraction exposes thumbnails as a list, not a single "thumbnail" string.
+            thumbnail = entry.get("thumbnail")
+            if not thumbnail:
+                thumbnails = entry.get("thumbnails") or []
+                thumbnail = thumbnails[-1].get("url") if thumbnails else None
             posts.append(self.normalize_post({
                 "id": video_id,
                 "title": entry.get("title", ""),
@@ -272,7 +313,7 @@ class ScraperService:
                 "author": entry.get("channel") or entry.get("uploader"),
                 "url": url,
                 "published_at": entry.get("upload_date") or entry.get("timestamp"),
-                "thumbnail": entry.get("thumbnail"),
+                "thumbnail": thumbnail,
                 "duration": entry.get("duration"),
             }, "youtube", channel_id_or_url))
         return posts

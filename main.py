@@ -8,9 +8,15 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
+from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
+from app.core.rate_limit import limiter
 from app.db.init_db import init_db
 from app.db.session import SessionLocal
 from app.api import auth as auth_routes
@@ -25,6 +31,10 @@ from app.api import topics as topics_routes
 from app.api import audit as audit_routes
 from app.api import analytics as analytics_routes
 from app.api import knowledge as knowledge_routes
+from app.api import approvals as approvals_routes
+from app.api import profile as profile_routes
+from app.api import posts as posts_routes
+from app.api import ingestion as ingestion_routes
 from config import settings
 
 # Import all models to register them with SQLAlchemy
@@ -102,6 +112,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting (brute-force protection on auth endpoints)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
@@ -110,6 +125,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve Quick Ingest uploads (screenshots/clips) directly
+MEDIA_UPLOADS_DIR = Path(__file__).resolve().parent / "media_uploads"
+MEDIA_UPLOADS_DIR.mkdir(exist_ok=True)
+app.mount("/media", StaticFiles(directory=str(MEDIA_UPLOADS_DIR)), name="media")
 
 # Include API routers
 app.include_router(auth_routes.router)
@@ -124,6 +144,10 @@ app.include_router(topics_routes.router)
 app.include_router(audit_routes.router)
 app.include_router(analytics_routes.router)
 app.include_router(knowledge_routes.router)
+app.include_router(approvals_routes.router)
+app.include_router(profile_routes.router)
+app.include_router(posts_routes.router)
+app.include_router(ingestion_routes.router)
 
 
 def custom_openapi() -> dict:
