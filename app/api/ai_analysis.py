@@ -15,6 +15,7 @@ from app.core.deps import get_current_user, get_current_admin_user, get_current_
 from app.services.ai_orchestrator import ai_orchestrator
 from app.services.audit_service import record_audit
 from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
+from app.services.knowledge_context import get_topic_knowledge_context
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
 
@@ -216,6 +217,7 @@ def test_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Sessi
         "posts_content": "Sample post text to simulate analysis.",
         "keywords": "risk, threat, escalation",
         "time_range": "last 24 hours",
+        "knowledge_context": get_topic_knowledge_context(db, topic_id) or "No knowledge base documents for this topic.",
     }
     provider = payload.provider or "ollama"
     model_name = payload.model_name or "qwen2.5:7b"

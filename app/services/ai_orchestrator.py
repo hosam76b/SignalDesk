@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.post import Post
 from app.services.ai_service import analyze_post_content
+from app.services.knowledge_context import get_topic_knowledge_context
 from app.services.media_processor import build_combined_text
 from app.services.sentiment import analyze_sentiment
 
@@ -43,6 +44,8 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
         "duration_seconds": 0.0,
     }
 
+    knowledge_context_by_topic: dict[int, str] = {}
+
     for post in posts:
         try:
             # Merge raw text with any OCR/audio-transcript results for unified analysis.
@@ -50,7 +53,15 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
             local_sentiment = analyze_sentiment(combined_text)
             post.sentiment = local_sentiment["label"]
             post.sentiment_score = int(float(local_sentiment["score"]) * 100)
-            analysis = analyze_post_content(combined_text)
+
+            if post.topic_id not in knowledge_context_by_topic:
+                knowledge_context_by_topic[post.topic_id] = get_topic_knowledge_context(db, post.topic_id)
+            knowledge_context = knowledge_context_by_topic[post.topic_id]
+            prompt_text = (
+                f"[Reference context from the topic's knowledge base]:\n{knowledge_context}\n\n[Post content]:\n{combined_text}"
+                if knowledge_context else combined_text
+            )
+            analysis = analyze_post_content(prompt_text)
             if not analysis["success"]:
                 result["failed"] += 1
                 result["errors"].append({"post_id": post.id, "error": analysis["error"]})

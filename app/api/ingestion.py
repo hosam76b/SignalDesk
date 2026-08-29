@@ -86,7 +86,9 @@ def _get_or_create_quick_source(db: Session, topic_id: int, platform: str) -> Mo
         target_type="manual",
         status="active",
         approval_status="approved",
-        is_active=True,
+        # Not a real scrapeable target, so keep it out of the recurring background
+        # scraping cycle; it only exists as an FK anchor for quick-ingested posts.
+        is_active=False,
     )
     db.add(source)
     db.commit()

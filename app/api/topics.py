@@ -89,9 +89,17 @@ class SourceInput(BaseModel):
         return value
 
 
-class SourceOutput(SourceInput):
+class SourceOutput(BaseModel):
+    """Read-only projection of MonitoredSource; deliberately unvalidated so synthetic
+    rows (e.g. the "Quick Ingest" platform="upload" bookkeeping source) still serialize."""
     id: int
     topic_id: int
+    platform: str
+    name: str
+    url_or_handle: str
+    target_type: str
+    apify_actor_id: str | None = None
+    is_active: bool
     last_scraped_at: datetime | None = None
     status: str
     last_error: str | None = None
@@ -244,7 +252,12 @@ def remove_topic_user(topic_id: int, user_id: int, db: Session = Depends(get_db)
 
 @router.get("/{topic_id}/sources", response_model=list[SourceOutput])
 def list_sources(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_user)):
-    return db.query(MonitoredSource).filter(MonitoredSource.topic_id == topic_id).order_by(MonitoredSource.created_at.desc()).all()
+    # Exclude the synthetic "Quick Ingest" bookkeeping source; it exists only to
+    # satisfy the FK on quick-ingested posts, not for recurring scraping.
+    return db.query(MonitoredSource).filter(
+        MonitoredSource.topic_id == topic_id,
+        MonitoredSource.name != "Quick Ingest",
+    ).order_by(MonitoredSource.created_at.desc()).all()
 
 
 @router.post("/{topic_id}/sources", response_model=SourceOutput, status_code=status.HTTP_201_CREATED)

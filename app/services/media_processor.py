@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from app.db.session import SessionLocal
 from app.models.post import Post
@@ -20,6 +21,12 @@ logger = logging.getLogger(__name__)
 MEDIA_STATUS_PENDING = "pending"
 MEDIA_STATUS_COMPLETED = "completed"
 MEDIA_STATUS_FAILED = "failed"
+
+UPLOAD_ROOT = Path(__file__).resolve().parent.parent.parent / "media_uploads"
+
+# Hard ceiling per extraction call so a slow/hung OCR model load (e.g. first-run
+# EasyOCR download) can never block the shared background task pool indefinitely.
+_EXTRACTION_TIMEOUT_SECONDS = 25
 
 # Bounds how many posts are OCR'd/transcribed at once. Without this, a scraping
 # cycle that saves dozens of posts fires that many concurrent DB sessions and
@@ -38,15 +45,35 @@ async def process_post_media(post_id: int) -> None:
             try:
                 ocr_text: str | None = None
                 for media_url in (post.media_urls or [])[:3]:
-                    if isinstance(media_url, str) and media_url.startswith(("http://", "https://")):
-                        ocr_text = await media_extractor.extract_image_ocr(media_url)
-                        if ocr_text:
-                            break
+                    if not isinstance(media_url, str):
+                        continue
+                    try:
+                        if media_url.startswith(("http://", "https://")):
+                            ocr_text = await asyncio.wait_for(
+                                media_extractor.extract_image_ocr(media_url), _EXTRACTION_TIMEOUT_SECONDS
+                            )
+                        elif media_url.startswith("/media/"):
+                            # Quick Ingest uploads are stored locally and served under /media/...
+                            local_path = UPLOAD_ROOT / media_url.removeprefix("/media/")
+                            if local_path.is_file():
+                                ocr_text = await asyncio.wait_for(
+                                    media_extractor.extract_image_ocr_from_path(str(local_path)), _EXTRACTION_TIMEOUT_SECONDS
+                                )
+                    except asyncio.TimeoutError:
+                        logger.warning("OCR extraction timed out for post %s; skipping", post_id)
+                    if ocr_text:
+                        break
 
                 transcript: str | None = None
                 candidate_url = post.post_url or post.source_url or ""
                 if candidate_url:
-                    transcript = await media_extractor.extract_video_transcript(candidate_url, platform=post.platform)
+                    try:
+                        transcript = await asyncio.wait_for(
+                            media_extractor.extract_video_transcript(candidate_url, platform=post.platform),
+                            _EXTRACTION_TIMEOUT_SECONDS,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.warning("Transcript extraction timed out for post %s; skipping", post_id)
 
                 post.extracted_ocr_text = ocr_text
                 post.video_transcript = transcript

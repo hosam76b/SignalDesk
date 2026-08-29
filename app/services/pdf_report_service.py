@@ -27,6 +27,7 @@ from app.models.post import Post
 from app.models.source import MonitoredSource
 from app.models.topic import Topic
 from app.models.user import User
+from app.models.knowledge import KnowledgeDocument
 
 logger = logging.getLogger(__name__)
 
@@ -316,6 +317,13 @@ def generate_topic_executive_pdf(
         story.append(KeepTogether(alert_table))
     else:
         story.append(Paragraph("<i>No critical or high-severity threat posts detected in this topic.</i>", normal_style))
+
+    knowledge_docs = db.query(KnowledgeDocument).filter(KnowledgeDocument.topic_id == topic_id).order_by(KnowledgeDocument.created_at.desc()).limit(10).all()
+    if knowledge_docs:
+        story.append(Spacer(1, 14))
+        story.append(Paragraph("5. KNOWLEDGE BASE REFERENCES USED IN ANALYSIS", heading_style))
+        for doc in knowledge_docs:
+            story.append(Paragraph(f"&bull; {sanitize_text(doc.title)} ({sanitize_text(doc.file_type)})", normal_style))
 
     story.append(Spacer(1, 16))
     story.append(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#cbd5e1"), spaceBefore=4, spaceAfter=8))

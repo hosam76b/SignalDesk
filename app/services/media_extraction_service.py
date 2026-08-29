@@ -15,11 +15,19 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Attempt pytesseract import
+# Attempt pytesseract import (requires the separate Tesseract-OCR system binary)
 try:
     import pytesseract
-except ImportError:  # pragma: no cover
+    _TESSERACT_AVAILABLE = bool(pytesseract.get_tesseract_version())
+except Exception:  # pragma: no cover - missing package or missing system binary
     pytesseract = None  # type: ignore[assignment]
+    _TESSERACT_AVAILABLE = False
+
+# Attempt EasyOCR import (pure-Python, no external system binary required)
+try:
+    import easyocr
+except ImportError:  # pragma: no cover
+    easyocr = None  # type: ignore[assignment]
 
 # Attempt YouTube Transcript API
 try:
@@ -41,6 +49,7 @@ class MediaExtractionService:
         self.ocr_enabled = getattr(settings, "ocr_enabled", True)
         self.whisper_model_name = getattr(settings, "whisper_model", "base")
         self._whisper_model = None
+        self._easyocr_reader = None
 
     def _get_whisper_model(self):
         """Lazy loader for WhisperModel."""
@@ -51,9 +60,37 @@ class MediaExtractionService:
                 logger.warning("Could not initialize local WhisperModel: %s", exc)
         return self._whisper_model
 
+    def _get_easyocr_reader(self):
+        """Lazy loader for the EasyOCR reader (Arabic + English), used when Tesseract is unavailable."""
+        if self._easyocr_reader is None and easyocr is not None:
+            try:
+                self._easyocr_reader = easyocr.Reader(["ar", "en"], gpu=False, verbose=False)
+            except Exception as exc:
+                logger.warning("Could not initialize EasyOCR reader: %s", exc)
+        return self._easyocr_reader
+
+    def _run_ocr_on_image(self, img: Image.Image) -> str:
+        """Run OCR on a PIL image, preferring Tesseract when its system binary is installed."""
+        if _TESSERACT_AVAILABLE and pytesseract:
+            try:
+                return pytesseract.image_to_string(img, lang="ara+eng")
+            except Exception:
+                try:
+                    return pytesseract.image_to_string(img)
+                except Exception:
+                    pass
+
+        reader = self._get_easyocr_reader()
+        if reader is not None:
+            import numpy as np
+            results = reader.readtext(np.array(img.convert("RGB")), detail=0, paragraph=True)
+            return " ".join(results)
+
+        return ""
+
     async def extract_image_ocr(self, image_url: str) -> str | None:
         """Download image and extract text via local OCR."""
-        if not self.ocr_enabled or not pytesseract:
+        if not self.ocr_enabled or not (_TESSERACT_AVAILABLE or easyocr):
             return None
 
         if not image_url or not image_url.startswith(("http://", "https://")):
@@ -66,14 +103,9 @@ class MediaExtractionService:
                     return None
                 image_bytes = resp.content
 
-            # Run OCR in thread
             def _run_ocr(raw_bytes: bytes) -> str:
                 img = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
-                try:
-                    # Attempt Arabic + English OCR, fallback to default
-                    return pytesseract.image_to_string(img, lang="ara+eng")
-                except Exception:
-                    return pytesseract.image_to_string(img)
+                return self._run_ocr_on_image(img)
 
             text = await asyncio.to_thread(_run_ocr, image_bytes)
             cleaned = " ".join(text.strip().split())
@@ -85,15 +117,12 @@ class MediaExtractionService:
 
     async def extract_image_ocr_from_path(self, file_path: str) -> str | None:
         """Run local OCR directly on a file already stored on disk (e.g. Quick Ingest uploads)."""
-        if not self.ocr_enabled or not pytesseract:
+        if not self.ocr_enabled or not (_TESSERACT_AVAILABLE or easyocr):
             return None
 
         def _run_ocr(path: str) -> str:
             img = Image.open(path).convert("RGB")
-            try:
-                return pytesseract.image_to_string(img, lang="ara+eng")
-            except Exception:
-                return pytesseract.image_to_string(img)
+            return self._run_ocr_on_image(img)
 
         try:
             text = await asyncio.to_thread(_run_ocr, file_path)

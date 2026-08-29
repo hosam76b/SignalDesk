@@ -818,6 +818,10 @@ function extractYoutubeVideoId(url: string | null | undefined): string | null {
   return match ? match[1] : null;
 }
 
+function resolveMediaUrl(url: string): string {
+  return url.startsWith("/") ? `${API}${url}` : url;
+}
+
 function PostDetailDialog({
   post,
   token,
@@ -925,14 +929,14 @@ function PostDetailDialog({
         ) : post.media_urls?.length ? (
           <div className="media-grid">
             {post.media_urls.map((media, index) =>
-              typeof media === "string" && /\.(mp4|webm)(\?|$)/i.test(media) ? (
-                <video key={index} src={media} controls />
+              typeof media === "string" && /\.(mp4|webm|mov|mkv|m4a|mp3|wav)(\?|$)/i.test(media) ? (
+                <video key={index} src={resolveMediaUrl(media)} controls />
               ) : typeof media === "string" ? (
                 <img
                   key={index}
-                  src={media}
+                  src={resolveMediaUrl(media)}
                   alt="وسائط الخبر"
-                  onClick={() => setZoomImage(media)}
+                  onClick={() => setZoomImage(resolveMediaUrl(media))}
                   style={{ cursor: "zoom-in" }}
                 />
               ) : null,
@@ -1836,7 +1840,7 @@ function QuickIngestModal({ token, lang, onClose }: { token: string; lang: Lang;
           </button>
         </div>
         {mode === "url" ? (
-          <form onSubmit={submitUrl}>
+          <form key="url-form" onSubmit={submitUrl}>
             <label>
               {lang === "ar" ? "رابط المنشور/القناة" : "Post/channel URL"}
               <input value={url ?? ""} onChange={(event) => setUrl(event.target.value)} placeholder="https://..." required />
@@ -1851,7 +1855,7 @@ function QuickIngestModal({ token, lang, onClose }: { token: string; lang: Lang;
             </button>
           </form>
         ) : (
-          <form onSubmit={submitFile}>
+          <form key="file-form" onSubmit={submitFile}>
             <label className="knowledge-file-field">
               {lang === "ar" ? "الملف (صورة أو فيديو)" : "File (image or video)"}
               <input type="file" accept="image/*,video/*,audio/*" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
