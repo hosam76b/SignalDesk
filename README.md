@@ -2,6 +2,9 @@
 
 <div align="center">
 
+[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README_EN.md)
+[![Arabic](https://img.shields.io/badge/Language-العربية-green?style=for-the-badge)](README.md)
+
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)
