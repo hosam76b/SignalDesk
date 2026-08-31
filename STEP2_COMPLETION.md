@@ -314,7 +314,7 @@ Invoke-RestMethod -Uri "http://localhost:8000/api/users" `
 ## File Structure Summary
 
 ```
-facebook-monitor/
+SignalDesk/
 ├── app/
 │   ├── api/
 │   │   ├── auth.py           ✅ NEW - Authentication endpoints

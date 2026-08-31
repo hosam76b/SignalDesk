@@ -213,8 +213,8 @@ GET /api/ai/statistics
 
 ## 📂 File Structure
 
-```
-facebook-monitor/
+```text
+SignalDesk/
 ├── app/
 │   ├── services/
 │   │   ├── ai_service.py              ✅ NEW

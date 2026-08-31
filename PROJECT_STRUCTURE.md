@@ -1,7 +1,7 @@
 # Complete Project Structure - After Step 2
 
 ```
-facebook-monitor/
+SignalDesk/
 │
 ├── 📁 app/
 │   │

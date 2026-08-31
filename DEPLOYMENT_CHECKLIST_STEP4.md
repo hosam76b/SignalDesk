@@ -14,7 +14,7 @@
   - Copy the key
 
 - [ ] **Update .env file**
-  - Open: `c:\Users\HCC_HosamBheri\Desktop\facebook-monitor\.env`
+  - Open: `.env`
   - Add line: `GEMINI_API_KEY=your_key_here`
   - Replace `your_key_here` with actual key
   - Save file
@@ -34,7 +34,7 @@
 
 - [ ] **Restart FastAPI server**
   ```bash
-  cd c:\Users\HCC_HosamBheri\Desktop\facebook-monitor
+  cd SignalDesk
   python -m uvicorn main:app --reload
   ```
 

@@ -248,7 +248,7 @@ python -m playwright install
 ## Project Structure
 
 ```
-facebook-monitor/
+SignalDesk/
 ├── app/
 │   ├── api/              # API route handlers
 │   │   ├── auth.py       # Authentication endpoints

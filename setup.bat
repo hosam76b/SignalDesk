@@ -1,14 +1,14 @@
 @echo off
 REM ============================================================================
-REM Windows Setup Script for Media Monitoring Platform
+REM Windows Setup Script for SignalDesk
 REM ============================================================================
 REM This script sets up the Python virtual environment and installs dependencies
-REM Run this from the project root directory: facebook-monitor/
+REM Run this from the project root directory: SignalDesk/
 REM ============================================================================
 
 echo.
 echo ============================================================================
-echo Media Monitoring Platform - Windows Setup
+echo SignalDesk - Windows Setup
 echo ============================================================================
 echo.
 

@@ -74,7 +74,7 @@ class Settings(BaseSettings):
     # Application Configuration
     debug: bool = True
     log_level: str = "INFO"
-    app_name: str = "Media Monitoring Platform"
+    app_name: str = "SignalDesk"
     app_version: str = "1.0.0"
     scraping_enabled: bool = True
     scraping_interval_seconds: int = 300

@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title=settings.app_name,
-    description="Media Monitoring Platform for Detecting Child Safety/Violence Content",
+    description="SignalDesk - Threat Intelligence & Media Monitoring Platform",
     version=settings.app_version,
     debug=settings.debug,
     lifespan=lifespan,
