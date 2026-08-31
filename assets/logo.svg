@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 120" width="100%" height="100%">
+  <defs>
+    <linearGradient id="cyanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#0284c7" />
+    </linearGradient>
+    <linearGradient id="coralGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb7185" />
+      <stop offset="100%" stop-color="#e11d48" />
+    </linearGradient>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" />
+      <stop offset="100%" stop-color="#0f172a" />
+    </linearGradient>
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+  </defs>
+
+  <!-- Background rounded pill -->
+  <rect x="5" y="5" width="490" height="110" rx="20" fill="url(#bgGrad)" stroke="#334155" stroke-width="2" />
+
+  <!-- Logo Mark Group (Diamond Radar with Beacon) -->
+  <g transform="translate(45, 60)">
+    <!-- Outer Cyan Rotating Diamond Frame -->
+    <rect x="-32" y="-32" width="64" height="64" rx="14" fill="none" stroke="url(#cyanGrad)" stroke-width="4" transform="rotate(45)" filter="url(#glow)" />
+    
+    <!-- Secondary Inner Accent Diamond -->
+    <rect x="-20" y="-20" width="40" height="40" rx="8" fill="#1e293b" stroke="#38bdf8" stroke-width="1.5" stroke-opacity="0.5" transform="rotate(45)" />
+
+    <!-- Signal Pulse Waves -->
+    <circle cx="0" cy="0" r="18" fill="none" stroke="#38bdf8" stroke-width="1" stroke-dasharray="3 3" opacity="0.6" />
+    <circle cx="0" cy="0" r="26" fill="none" stroke="#38bdf8" stroke-width="1" stroke-dasharray="4 4" opacity="0.3" />
+
+    <!-- Center Coral Signal Beacon Core -->
+    <circle cx="0" cy="0" r="8.5" fill="url(#coralGrad)" filter="url(#glow)" />
+    <circle cx="0" cy="0" r="3.5" fill="#ffffff" />
+  </g>
+
+  <!-- Typography -->
+  <text x="120" y="68" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif" font-weight="900" font-size="38" letter-spacing="1.5" fill="#ffffff">
+    SIGNAL<tspan fill="#38bdf8">DESK</tspan>
+  </text>
+
+  <!-- Tagline -->
+  <text x="122" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="600" font-size="12" letter-spacing="2.5" fill="#94a3b8">
+    MEDIA &amp; THREAT INTELLIGENCE
+  </text>
+</svg>

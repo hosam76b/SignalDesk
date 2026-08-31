@@ -1,20 +1,29 @@
-# 🛡️ Media Monitoring & Intelligence Platform (Signaldesk)
-
 <div align="center">
 
-[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README_EN.md)
-[![Arabic](https://img.shields.io/badge/Language-العربية-green?style=for-the-badge)](README.md)
+<img src="assets/logo.svg" alt="Signaldesk Logo" width="480" />
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-316192?style=for-the-badge&logo=postgresql&logoColor=white)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-Local_AI-white?style=for-the-badge&logo=ollama&logoColor=black)
-![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)
+<br/>
 
-**An enterprise-grade Open Source Intelligence (OSINT) and threat monitoring platform for ingesting, classifying, and analyzing digital content across social networks and the web. Features Coordinated Inauthentic Behavior (CIB) detection, origin tracking (Patient Zero), OCR image text extraction, and AI-powered audio/video transcription.**
+### 📑 Language Navigation / تصفح الدليل حسب اللغة
+
+| 🌐 **Current: English Version (EN)** | 🇸🇦 [**التبديل إلى النسخة العربية (AR)**](README.md) |
+| :---: | :---: |
+| ✅ *You are viewing the English documentation* | 👉 [Click here to switch to README.md](README.md) |
+
+<br/>
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Ollama](https://img.shields.io/badge/Ollama-Local_AI-white?style=for-the-badge&logo=ollama&logoColor=black)](https://ollama.com/)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)](https://aistudio.google.com/)
+
+<p align="center">
+<strong>An enterprise-grade Open Source Intelligence (OSINT) and threat monitoring platform for ingesting, classifying, and analyzing digital content across social networks and the web. Features Coordinated Inauthentic Behavior (CIB) detection, origin tracking (Patient Zero), OCR image text extraction, and AI-powered audio/video transcription.</strong>
+</p>
 
 [Features](#-key-features) • [Architecture](#-system-architecture) • [Prerequisites](#-prerequisites) • [Installation & Setup](#-step-by-step-installation--setup) • [AI Configuration](#-ai-provider-configuration) • [API Documentation](#-api-documentation)
 
@@ -169,8 +178,8 @@ Ensure the following tools are installed on your environment:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/hosam76b/Facebook-Monitor.git
-cd Facebook-Monitor
+git clone https://github.com/hosam76b/signaldesk.git
+cd signaldesk
 ```
 
 ---
@@ -350,7 +359,7 @@ The platform allows live switching between AI providers from the web UI (`System
 ## 📂 Project Directory Structure
 
 ```text
-facebook-monitor/
+signaldesk/
 ├── app/                        # FastAPI Backend Application
 │   ├── api/                    # REST API Route Controllers
 │   │   ├── auth.py             # Authentication & JWT tokens
@@ -437,3 +446,4 @@ Distributed under the [MIT License](LICENSE).
 <div align="center">
 <b>Engineered for digital safety, intelligence analysis, and rapid response.</b>
 </div>
+

@@ -1,20 +1,29 @@
-# 🛡️ منصة رصد وتحليل الإعلام الرقمي والتهديدات | Media Monitoring & Intelligence Platform (Signaldesk)
-
 <div align="center">
 
-[![English](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](README_EN.md)
-[![Arabic](https://img.shields.io/badge/Language-العربية-green?style=for-the-badge)](README.md)
+<img src="assets/logo.svg" alt="Signaldesk Logo" width="480" />
 
-![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)
-![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-316192?style=for-the-badge&logo=postgresql&logoColor=white)
-![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)
-![Ollama](https://img.shields.io/badge/Ollama-Local_AI-white?style=for-the-badge&logo=ollama&logoColor=black)
-![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)
+<br/>
 
-**منظومة استخبارات مصادر مفتوحة (OSINT) متكاملة لرصد، تصنيف، وتحليل المحتوى الرقمي عبر منصات التواصل الاجتماعي والويب، مع كشف السلوك المنسق (CIB)، تتبع منشأ الأخبار (Patient Zero)، واستخراج النصوص عبر الـ OCR وتفريغ الصوت/الفيديو بالذكاء الاصطناعي.**
+### 📑 تصفح الدليل حسب اللغة / Language Navigation
+
+| 🇸🇦 **النسخة الحالية: العربية (AR)** | 🌐 [**Switch to English Version (EN)**](README_EN.md) |
+| :---: | :---: |
+| ✅ *أنت تتصفح الدليل باللغة العربية* | 👉 [انقر هنا للانتقال إلى README_EN.md](README_EN.md) |
+
+<br/>
+
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-14%2B-316192?style=for-the-badge&logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-v4-06B6D4?style=for-the-badge&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Ollama](https://img.shields.io/badge/Ollama-Local_AI-white?style=for-the-badge&logo=ollama&logoColor=black)](https://ollama.com/)
+[![Google Gemini](https://img.shields.io/badge/Google_Gemini-2.0_Flash-8E75C2?style=for-the-badge&logo=googlegemini&logoColor=white)](https://aistudio.google.com/)
+
+<p align="center">
+<strong>منظومة استخبارات مصادر مفتوحة (OSINT) متكاملة لرصد، تصنيف، وتحليل المحتوى الرقمي عبر منصات التواصل الاجتماعي والويب، مع كشف السلوك المنسق (CIB)، تتبع منشأ الأخبار (Patient Zero)، واستخراج النصوص عبر الـ OCR وتفريغ الصوت/الفيديو بالذكاء الاصطناعي.</strong>
+</p>
 
 [الميزات](#-الميزات-الرئيسية) • [المعمارية](#-معمارية-النظام) • [المتطلبات](#-المتطلبات-الأساسية) • [التنصيب والتشغيل](#-دليل-التنصيب-والتشغيل-خطوة-بخطوة) • [إعداد الذكاء الاصطناعي](#-إعداد-مزودي-الذكاء-الاصطناعي) • [واجهات الـ API](#-توثيق-واجهات-البرمجة-api)
 
@@ -167,8 +176,8 @@ flowchart TB
 ### 1. استنساخ المستودع (Clone Repository)
 
 ```bash
-git clone https://github.com/your-username/facebook-monitor.git
-cd facebook-monitor
+git clone https://github.com/hosam76b/signaldesk.git
+cd signaldesk
 ```
 
 ---
@@ -351,7 +360,7 @@ setup.bat
 ## 📂 هيكل المشروع
 
 ```text
-facebook-monitor/
+signaldesk/
 ├── app/                        # النواة الخلفية (FastAPI Application)
 │   ├── api/                    # مسارات ومتحكمات الـ REST API
 │   │   ├── auth.py             # تسجيل الدخول والرموز المميزة (JWT)
