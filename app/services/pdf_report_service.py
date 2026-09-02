@@ -57,7 +57,7 @@ def generate_topic_executive_pdf(
 
     # Gather data
     posts = db.query(Post).filter(Post.topic_id == topic_id).all()
-    sources = db.query(MonitoredSource).filter(MonitoredSource.topic_id == topic_id).all()
+    sources = db.query(MonitoredSource).join(Post).filter(Post.topic_id == topic_id).distinct().all()
     keywords = db.query(Keyword).filter(Keyword.topic_id == topic_id).all()
 
     total_posts = len(posts)

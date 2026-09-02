@@ -11,20 +11,24 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# Create SQLAlchemy engine
-# - pool_pre_ping=True: Tests connection before using it
-# - echo=False: Set to True for SQL debugging
-engine = create_engine(
-    settings.db_url,
-    connect_args={},
-    poolclass=None,
-    pool_size=10,
-    max_overflow=20,
-    pool_timeout=10,
-    pool_pre_ping=True,
-    echo=False,
-    future=True,
-)
+if settings.db_url.startswith("sqlite"):
+    engine = create_engine(
+        settings.db_url,
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+else:
+    engine = create_engine(
+        settings.db_url,
+        connect_args={},
+        poolclass=None,
+        pool_size=10,
+        max_overflow=20,
+        pool_timeout=10,
+        pool_pre_ping=True,
+        echo=False,
+        future=True,
+    )
 
 # Create session factory
 SessionLocal = sessionmaker(

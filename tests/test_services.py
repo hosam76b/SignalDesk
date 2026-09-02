@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.core.security import create_access_token, decode_token
+from app.api.scraper import ScraperStatusResponse
 from app.services.apify_service import ApifyService
 from app.services.playwright_service import PlaywrightService
 from app.services.scraper_orchestrator import ScraperOrchestrator
@@ -18,6 +19,16 @@ def test_security_token_round_trip():
     payload = decode_token(token)
     assert payload["sub"] == "42"
     assert payload["role"] == "super_admin"
+
+
+def test_scraper_status_allows_no_previous_run():
+    status = ScraperStatusResponse(
+        status="idle",
+        message="Scraper is ready",
+        last_run=None,
+        is_running=False,
+    )
+    assert status.last_run is None
 
 
 def test_apify_unconfigured_is_safe(monkeypatch):
@@ -141,10 +152,11 @@ def test_orchestrator_all_topics_runs_each_topic(db, seeded_db, monkeypatch):
     seen = []
 
     async def fake_scrape(source, keywords):
-        seen.append((source.topic_id, tuple(keywords)))
+        seen.append((source.id, tuple(keywords)))
         return []
 
     monkeypatch.setattr(orchestrator, "_scrape_source", fake_scrape)
     result = asyncio.run(orchestrator.run_scraping_cycle(db))
     assert result["total_sources"] == 2
-    assert {topic_id for topic_id, _keywords in seen} == {seeded_db["topic_a"].id, seeded_db["topic_b"].id}
+    assert len(seen) == 2
+    assert {keywords for _, keywords in seen} == {("alpha", "bravo")}

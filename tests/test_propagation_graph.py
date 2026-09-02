@@ -55,9 +55,9 @@ def test_propagation_patient_zero_and_cib(memory_db):
     memory_db.add(topic)
     memory_db.commit()
 
-    source_a = MonitoredSource(topic_id=topic.id, platform="telegram", name="Channel A", url_or_handle="@chan_a")
-    source_b = MonitoredSource(topic_id=topic.id, platform="facebook", name="Page B", url_or_handle="https://fb.com/pageb")
-    source_c = MonitoredSource(topic_id=topic.id, platform="x", name="Account C", url_or_handle="https://x.com/acctc")
+    source_a = MonitoredSource(platform="telegram", name="Channel A", url_or_handle="@chan_a")
+    source_b = MonitoredSource(platform="facebook", name="Page B", url_or_handle="https://fb.com/pageb")
+    source_c = MonitoredSource(platform="x", name="Account C", url_or_handle="https://x.com/acctc")
     memory_db.add_all([source_a, source_b, source_c])
     memory_db.commit()
 

@@ -96,8 +96,8 @@ def seeded_db(db: Session):
         UserTopic(user=admin_b, topic=topic_b, role="topic_admin"),
         UserTopic(user=monitor_a, topic=topic_a, role="topic_monitor"),
     ])
-    source_a = MonitoredSource(topic=topic_a, platform="rss", name="A Feed", url_or_handle="https://example.com/a")
-    source_b = MonitoredSource(topic=topic_b, platform="rss", name="B Feed", url_or_handle="https://example.com/b")
+    source_a = MonitoredSource(platform="rss", name="A Feed", url_or_handle="https://example.com/a")
+    source_b = MonitoredSource(platform="rss", name="B Feed", url_or_handle="https://example.com/b")
     db.add_all([source_a, source_b])
     db.flush()
     db.add_all([

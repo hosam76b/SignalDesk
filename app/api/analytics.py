@@ -34,11 +34,17 @@ def get_topic_propagation_graph_endpoint(
 @router.get("/topics/{topic_id}/reports/executive-pdf")
 def export_executive_pdf_report(
     topic_id: int,
+    language: str = Query(default="en", pattern="^(ar|en)$"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_topic_user),
 ) -> Response:
     """Generate and download a topic-scoped executive PDF report."""
-    result = PDFReportService.generate_executive_report(db, topic_id, requester=current_user)
+    result = PDFReportService.generate_executive_report(
+        db,
+        topic_id,
+        requester=current_user,
+        language=language,
+    )
     if not result.get("success"):
         raise HTTPException(status_code=500, detail=result.get("error", "Executive report generation failed"))
     return Response(

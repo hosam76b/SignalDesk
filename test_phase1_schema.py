@@ -8,34 +8,29 @@ from app.db import init_db as init_module
 from app.models import Keyword, MonitoredSource, Post
 
 
-def test_topic_id_foreign_keys_and_cascades(db, seeded_db):
+def test_global_sources_survive_topic_deletion(db, seeded_db):
     topic_a = seeded_db["topic_a"]
-    source = db.query(MonitoredSource).filter_by(topic_id=topic_a.id).one()
+    source = db.query(MonitoredSource).filter_by(url_or_handle="https://example.com/a").one()
     keyword = db.query(Keyword).filter_by(topic_id=topic_a.id).one()
     post = db.query(Post).filter_by(topic_id=topic_a.id).one()
 
-    assert source.topic_id == topic_a.id, "Source must retain its owning topic_id"
     assert keyword.topic_id == topic_a.id, "Keyword must retain its owning topic_id"
     assert post.topic_id == topic_a.id, "Post must retain its owning topic_id"
 
     db.delete(topic_a)
     db.commit()
-    assert db.get(MonitoredSource, source.id) is None, "Deleting a topic must cascade to its sources"
+    assert db.get(MonitoredSource, source.id) is not None, "Deleting a topic must not delete global sources"
     assert db.get(Keyword, keyword.id) is None, "Deleting a topic must cascade to its keywords"
     assert db.get(Post, post.id) is None, "Deleting a topic must cascade to its posts"
 
 
-def test_source_and_keyword_require_valid_topic(db, seeded_db):
-    with pytest.raises(IntegrityError, match="NOT NULL"):
-        db.add(MonitoredSource(platform="rss", name="Orphan", url_or_handle="https://orphan", topic_id=None))
+def test_source_targets_are_global_and_unique(db, seeded_db):
+    db.add(MonitoredSource(platform="rss", name="Global", url_or_handle="https://global"))
+    db.commit()
+    with pytest.raises(IntegrityError):
+        db.add(MonitoredSource(platform="rss", name="Duplicate", url_or_handle="https://global"))
         db.commit()
     db.rollback()
-
-    with pytest.raises(IntegrityError, match="FOREIGN KEY"):
-        db.add(MonitoredSource(platform="rss", name="Invalid", url_or_handle="https://invalid", topic_id=999999))
-        db.commit()
-    db.rollback()
-
     with pytest.raises(IntegrityError, match="NOT NULL"):
         db.add(Keyword(word_or_phrase="orphan", category="general", topic_id=None))
         db.commit()
@@ -60,7 +55,6 @@ def test_legacy_rows_are_backfilled_to_general_topic(tmp_path, monkeypatch):
     init_module.migrate_topic_schema()
     with legacy_engine.connect() as connection:
         topic_id = connection.execute(text("SELECT id FROM topics WHERE title = 'General Monitoring'")).scalar_one()
-        assert connection.execute(text("SELECT topic_id FROM monitored_sources WHERE id = 1")).scalar_one() == topic_id, "Legacy sources must be backfilled"
         assert connection.execute(text("SELECT topic_id FROM keywords WHERE id = 1")).scalar_one() == topic_id, "Legacy keywords must be backfilled"
         assert connection.execute(text("SELECT topic_id FROM posts WHERE id = 1")).scalar_one() == topic_id, "Legacy posts must be backfilled"
         assert connection.execute(text("SELECT role FROM users WHERE id = 1")).scalar_one() == "super_admin", "Legacy admin role must be migrated"

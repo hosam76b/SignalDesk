@@ -21,7 +21,6 @@ class Topic(Base):
     user_topics = relationship("UserTopic", back_populates="topic", cascade="all, delete-orphan")
     permissions = relationship("TopicPermission", back_populates="topic", cascade="all, delete-orphan")
     prompt_templates = relationship("PromptTemplate", back_populates="topic", cascade="all, delete-orphan")
-    sources = relationship("MonitoredSource", back_populates="topic", cascade="all, delete-orphan")
     keywords = relationship("Keyword", back_populates="topic", cascade="all, delete-orphan")
     posts = relationship("Post", back_populates="topic", cascade="all, delete-orphan")
     knowledge_documents = relationship("KnowledgeDocument", back_populates="topic", cascade="all, delete-orphan")

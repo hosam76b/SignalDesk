@@ -23,9 +23,31 @@ async def dispatch_post_ingested(payload: dict[str, Any]) -> dict[str, Any]:
             response = await client.post(url, json=_json_safe(payload))
             response.raise_for_status()
         return {"success": True, "delivered": True, "status_code": response.status_code}
+    except httpx.HTTPStatusError as exc:
+        logger.exception("Post-ingested webhook rejected by n8n: %s", exc)
+        return {
+            "success": False,
+            "delivered": False,
+            "status_code": exc.response.status_code,
+            "error": _format_webhook_error(exc.response),
+        }
     except httpx.HTTPError as exc:
         logger.exception("Post-ingested webhook delivery failed: %s", exc)
         return {"success": False, "delivered": False, "error": str(exc)}
+
+
+def _format_webhook_error(response: httpx.Response) -> str:
+    try:
+        detail = response.json()
+    except ValueError:
+        detail = response.text.strip()
+
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("error") or response.reason_phrase
+        hint = detail.get("hint")
+        return f"n8n webhook returned {response.status_code}: {message}" + (f" Hint: {hint}" if hint else "")
+
+    return f"n8n webhook returned {response.status_code}: {detail or response.reason_phrase}"
 
 
 def _json_safe(value: Any) -> Any:

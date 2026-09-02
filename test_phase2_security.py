@@ -11,7 +11,7 @@ def keyword_payload(word="updated keyword"):
 
 def test_cross_topic_access_is_forbidden(topic_a_admin_client, seeded_db):
     topic_b_id = seeded_db["topic_b"].id
-    source_id = seeded_db["topic_b"].sources[0].id
+    source_id = topic_a_admin_client.get(f"/api/v1/topics/{seeded_db['topic_a'].id}/sources").json()[0]["id"]
     keyword_id = seeded_db["topic_b"].keywords[0].id
     for method, path, payload in (
         ("get", f"/api/v1/topics/{topic_b_id}/sources", None),

@@ -59,7 +59,7 @@ class ScraperStatusResponse(BaseModel):
 
     status: str
     message: str
-    last_run: datetime = None
+    last_run: datetime | None = None
     is_running: bool
 
     model_config = ConfigDict(json_schema_extra={

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_admin_user
@@ -25,12 +27,23 @@ class SourceInput(BaseModel):
     url_or_handle: str = Field(min_length=1, max_length=500)
     is_active: bool = True
 
+    @field_validator("url_or_handle")
+    @classmethod
+    def validate_target(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if any(character in normalized for character in ("\r", "\n", "\x00")):
+            raise ValueError("Target contains invalid control characters")
+        if normalized.startswith(("http://", "https://")):
+            parsed = urlsplit(normalized)
+            if not parsed.hostname or "@" in parsed.netloc:
+                raise ValueError("Target must include a valid hostname without credentials")
+        return normalized
+
 
 class SourceOutput(SourceInput):
     """Source response payload."""
 
     id: int
-    topic_id: int
     last_scraped_at: datetime | None = None
     last_error: str | None = None
     last_error_at: datetime | None = None
@@ -67,12 +80,16 @@ def list_sources(
 @router.post("/sources", response_model=SourceOutput, status_code=status.HTTP_201_CREATED)
 def create_source(
     source: SourceInput,
-    topic_id: int = Query(..., ge=1),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_admin_user),
 ) -> MonitoredSource:
     """Create a monitored source."""
-    record = MonitoredSource(topic_id=topic_id, status="active", **source.model_dump())
+    existing = db.query(MonitoredSource).filter(
+        func.lower(MonitoredSource.url_or_handle) == source.url_or_handle.strip().lower()
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
+    record = MonitoredSource(status="active", **source.model_dump())
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -90,6 +107,12 @@ def update_source(
     record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id).first()
     if record is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source not found")
+    existing = db.query(MonitoredSource).filter(
+        MonitoredSource.id != source_id,
+        func.lower(MonitoredSource.url_or_handle) == source.url_or_handle.strip().lower(),
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
     for key, value in source.model_dump().items():
         setattr(record, key, value)
     db.commit()

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.models import MonitoredSource, Post, Topic
 from app.services.alerts import AlertManager
+from app.services import reports as reports_module
 from app.services.reports import PDFReportService
 
 
@@ -9,7 +10,7 @@ def test_pdf_service_generates_report_bytes(db, seeded_db):
     topic = Topic(title="Crisis Topic", description="Executive report test")
     db.add(topic)
     db.flush()
-    source = MonitoredSource(topic_id=topic.id, platform="rss", name="Report Source", url_or_handle="https://example.com/source")
+    source = MonitoredSource(platform="rss", name="Report Source", url_or_handle="https://example.com/source")
     db.add(source)
     db.flush()
 
@@ -42,13 +43,39 @@ def test_pdf_service_generates_report_bytes(db, seeded_db):
     assert len(report["pdf_bytes"]) > 1000
 
 
+def test_pdf_service_localizes_arabic_report(db, seeded_db, monkeypatch):
+    topic = Topic(title="المراقبة العامة", description="اختبار التقرير العربي")
+    db.add(topic)
+    db.commit()
+    shaped_text: list[str] = []
+    real_shape_arabic = reports_module.shape_arabic
+
+    def capture_arabic(value: str) -> str:
+        shaped_text.append(value)
+        return real_shape_arabic(value)
+
+    monkeypatch.setattr(reports_module, "shape_arabic", capture_arabic)
+
+    report = PDFReportService.generate_executive_report(
+        db,
+        topic.id,
+        requester=seeded_db["super_admin"],
+        language="ar",
+    )
+
+    assert report["success"] is True
+    assert report["pdf_bytes"].startswith(b"%PDF-")
+    assert "سري // تقرير الاستخبارات التنفيذي" in shaped_text
+    assert "التوصيات الاستراتيجية" in shaped_text
+
+
 def test_alert_manager_detects_volume_and_cib_alerts(db, seeded_db):
     topic = Topic(title="Alert Topic")
     db.add(topic)
     db.flush()
-    source_a = MonitoredSource(topic_id=topic.id, platform="rss", name="Alert Source A", url_or_handle="https://example.com/alert-a")
-    source_b = MonitoredSource(topic_id=topic.id, platform="rss", name="Alert Source B", url_or_handle="https://example.com/alert-b")
-    source_c = MonitoredSource(topic_id=topic.id, platform="rss", name="Alert Source C", url_or_handle="https://example.com/alert-c")
+    source_a = MonitoredSource(platform="rss", name="Alert Source A", url_or_handle="https://example.com/alert-a")
+    source_b = MonitoredSource(platform="rss", name="Alert Source B", url_or_handle="https://example.com/alert-b")
+    source_c = MonitoredSource(platform="rss", name="Alert Source C", url_or_handle="https://example.com/alert-c")
     db.add_all([source_a, source_b, source_c])
     db.flush()
 

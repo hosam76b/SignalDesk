@@ -35,6 +35,7 @@ from app.api import approvals as approvals_routes
 from app.api import profile as profile_routes
 from app.api import posts as posts_routes
 from app.api import ingestion as ingestion_routes
+from app.api import spider as spider_routes
 from config import settings
 
 # Import all models to register them with SQLAlchemy
@@ -43,6 +44,21 @@ import app.models  # noqa: F401
 # Setup logging
 logging.basicConfig(level=settings.log_level)
 logger = logging.getLogger(__name__)
+
+
+def _split_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _api_documentation_urls() -> tuple[str | None, str | None, str | None]:
+    if not settings.api_openapi_enabled:
+        return None, None, None
+    if not settings.api_docs_enabled:
+        return settings.api_openapi_url, None, None
+    return settings.api_openapi_url, settings.api_docs_url, settings.api_redoc_url
+
+
+openapi_url, docs_url, redoc_url = _api_documentation_urls()
 
 
 async def _background_scraping_loop() -> None:
@@ -110,6 +126,9 @@ app = FastAPI(
     version=settings.app_version,
     debug=settings.debug,
     lifespan=lifespan,
+    openapi_url=openapi_url,
+    docs_url=docs_url,
+    redoc_url=redoc_url,
 )
 
 # Rate limiting (brute-force protection on auth endpoints)
@@ -130,7 +149,7 @@ app.add_middleware(SlowAPIMiddleware)
 # CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_split_csv(settings.cors_allow_origins),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -158,6 +177,7 @@ app.include_router(approvals_routes.router)
 app.include_router(profile_routes.router)
 app.include_router(posts_routes.router)
 app.include_router(ingestion_routes.router)
+app.include_router(spider_routes.router)
 
 
 def custom_openapi() -> dict:

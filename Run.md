@@ -26,6 +26,23 @@ Uvicorn running on http://127.0.0.1:8000
 http://127.0.0.1:8000/docs
 ```
 
+يمكن التحكم في توثيق وإخراج الـ API من ملف `.env`:
+
+```env
+API_DOCS_ENABLED=true
+API_OPENAPI_ENABLED=true
+API_DOCS_URL=/docs
+API_REDOC_URL=/redoc
+API_OPENAPI_URL=/openapi.json
+CORS_ALLOW_ORIGINS=http://127.0.0.1:3000,http://localhost:3000
+```
+
+وتصدير ملف OpenAPI يتم عبر:
+
+```powershell
+venv\Scripts\python.exe export_openapi.py --output openapi.json
+```
+
 ## 2. تشغيل Frontend
 
 افتح نافذة PowerShell ثانية ثم نفّذ:

@@ -72,17 +72,15 @@ def _detect_platform(url: str) -> str:
 
 def _get_or_create_quick_source(db: Session, topic_id: int, platform: str) -> MonitoredSource:
     source = db.query(MonitoredSource).filter(
-        MonitoredSource.topic_id == topic_id,
         MonitoredSource.platform == platform,
-        MonitoredSource.name == "Quick Ingest",
+        MonitoredSource.url_or_handle == f"manual://quick-ingest/{topic_id}",
     ).first()
     if source is not None:
         return source
     source = MonitoredSource(
-        topic_id=topic_id,
         platform=platform,
         name="Quick Ingest",
-        url_or_handle="manual://quick-ingest",
+        url_or_handle=f"manual://quick-ingest/{topic_id}",
         target_type="manual",
         status="active",
         approval_status="approved",

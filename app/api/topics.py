@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_admin_user, get_current_topic_admin, get_current_topic_user, get_current_user
@@ -93,7 +94,6 @@ class SourceOutput(BaseModel):
     """Read-only projection of MonitoredSource; deliberately unvalidated so synthetic
     rows (e.g. the "Quick Ingest" platform="upload" bookkeeping source) still serialize."""
     id: int
-    topic_id: int
     platform: str
     name: str
     url_or_handle: str
@@ -254,18 +254,19 @@ def remove_topic_user(topic_id: int, user_id: int, db: Session = Depends(get_db)
 def list_sources(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_user)):
     # Exclude the synthetic "Quick Ingest" bookkeeping source; it exists only to
     # satisfy the FK on quick-ingested posts, not for recurring scraping.
-    return db.query(MonitoredSource).filter(
-        MonitoredSource.topic_id == topic_id,
-        MonitoredSource.name != "Quick Ingest",
-    ).order_by(MonitoredSource.created_at.desc()).all()
+    return db.query(MonitoredSource).filter(MonitoredSource.name != "Quick Ingest").order_by(MonitoredSource.created_at.desc()).all()
 
 
 @router.post("/{topic_id}/sources", response_model=SourceOutput, status_code=status.HTTP_201_CREATED)
 def create_source(topic_id: int, source: SourceInput, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_admin)):
     if db.query(Topic).filter(Topic.id == topic_id).first() is None:
         raise HTTPException(status_code=404, detail="Topic not found")
+    existing = db.query(MonitoredSource).filter(
+        func.lower(MonitoredSource.url_or_handle) == source.url_or_handle.lower()
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
     record = MonitoredSource(
-        topic_id=topic_id,
         status="active",
         approval_status="approved",
         proposed_by_id=current_user.id,
@@ -281,9 +282,15 @@ def create_source(topic_id: int, source: SourceInput, db: Session = Depends(get_
 
 @router.put("/{topic_id}/sources/{source_id}", response_model=SourceOutput)
 def update_source(topic_id: int, source_id: int, source: SourceInput, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
-    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id, MonitoredSource.topic_id == topic_id).first()
+    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id).first()
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
+    existing = db.query(MonitoredSource).filter(
+        MonitoredSource.id != source_id,
+        func.lower(MonitoredSource.url_or_handle) == source.url_or_handle.lower(),
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
     for key, value in source.model_dump().items():
         setattr(record, key, value)
     db.commit()
@@ -293,7 +300,7 @@ def update_source(topic_id: int, source_id: int, source: SourceInput, db: Sessio
 
 @router.delete("/{topic_id}/sources/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_source(topic_id: int, source_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
-    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id, MonitoredSource.topic_id == topic_id).first()
+    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id).first()
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
     db.delete(record)
@@ -302,7 +309,7 @@ def delete_source(topic_id: int, source_id: int, db: Session = Depends(get_db), 
 
 @router.patch("/{topic_id}/sources/{source_id}/toggle", response_model=SourceOutput)
 def toggle_source(topic_id: int, source_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_admin)):
-    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id, MonitoredSource.topic_id == topic_id).first()
+    record = db.query(MonitoredSource).filter(MonitoredSource.id == source_id).first()
     if record is None:
         raise HTTPException(status_code=404, detail="Source not found")
     record.is_active = not record.is_active
@@ -366,10 +373,14 @@ def propose_source(
     """Observer/analyst proposal for a new monitored source; requires manager approval before activation."""
     if db.query(Topic).filter(Topic.id == topic_id).first() is None:
         raise HTTPException(status_code=404, detail="Topic not found")
+    existing = db.query(MonitoredSource).filter(
+        func.lower(MonitoredSource.url_or_handle) == source.url_or_handle.lower()
+    ).first()
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
     payload = source.model_dump()
     payload["is_active"] = False
     record = MonitoredSource(
-        topic_id=topic_id,
         status="pending_review",
         approval_status="pending",
         proposed_by_id=current_user.id,
@@ -429,7 +440,6 @@ def list_pending_approvals(
 ):
     """List pending source/keyword proposals awaiting a topic manager's decision."""
     sources = db.query(MonitoredSource).filter(
-        MonitoredSource.topic_id == topic_id,
         MonitoredSource.approval_status == "pending",
     ).order_by(MonitoredSource.created_at.desc()).all()
     keywords = db.query(Keyword).filter(
@@ -447,7 +457,6 @@ def list_my_proposals(
 ):
     """Status tracking panel for the current user's own submitted proposals."""
     sources = db.query(MonitoredSource).filter(
-        MonitoredSource.topic_id == topic_id,
         MonitoredSource.proposed_by_id == current_user.id,
     ).order_by(MonitoredSource.created_at.desc()).all()
     keywords = db.query(Keyword).filter(
@@ -504,7 +513,7 @@ def update_news_priority(
 def topic_stats(topic_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_topic_user)):
     return {
         "topic_id": topic_id,
-        "sources_count": db.query(MonitoredSource).filter(MonitoredSource.topic_id == topic_id).count(),
+        "sources_count": db.query(MonitoredSource).count(),
         "keywords_count": db.query(Keyword).filter(Keyword.topic_id == topic_id).count(),
         "news_count": db.query(Post).filter(Post.topic_id == topic_id).count(),
     }

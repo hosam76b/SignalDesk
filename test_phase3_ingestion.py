@@ -34,12 +34,12 @@ def test_targeted_ingestion_scopes_sources_keywords_and_posts(db, seeded_db, mon
     result = asyncio.run(orchestrator.run_scraping_cycle(db, topic_id=seeded_db["topic_a"].id))
 
     assert result["success"], f"Targeted ingestion failed: {result['errors']}"
-    assert result["new_posts_saved"] == 1, "Topic A run must save exactly one matching post"
-    assert calls == [(seeded_db["topic_a"].sources[0].id, ["alpha"])], "Only Topic A source and keyword may be evaluated"
+    assert result["new_posts_saved"] == 2, "Every global source must be evaluated for Topic A keywords"
+    assert {keywords for _, keywords in calls} == {("alpha",)}, "Only Topic A keywords may be evaluated"
     posts = db.query(Post).all()
-    assert len(posts) == 1, "Topic B must not produce a post during Topic A ingestion"
-    assert posts[0].topic_id == seeded_db["topic_a"].id, "Saved post must carry the triggering topic_id"
-    assert posts[0].source_id == seeded_db["topic_a"].sources[0].id, "Saved post must carry Topic A source_id"
+    assert len(posts) == 2, "Topic B must not produce a post during Topic A ingestion"
+    assert {post.topic_id for post in posts} == {seeded_db["topic_a"].id}, "Saved posts must carry the triggering topic_id"
+    assert {post.source_id for post in posts} == {source_id for source_id, _ in calls}, "Saved posts must retain their global source IDs"
 
 
 def test_ingestion_without_keywords_keeps_all_source_posts(db, seeded_db, monkeypatch):

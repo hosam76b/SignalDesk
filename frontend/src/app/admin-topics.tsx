@@ -7,6 +7,7 @@ import { Check, Edit3, FileText, Plus, Trash2, X } from "lucide-react";
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 type Role = "super_admin" | "topic_admin" | "topic_monitor";
+type Lang = "ar" | "en";
 type Topic = { id: number; title: string; description?: string | null };
 type Item = {
   id: number;
@@ -26,9 +27,11 @@ type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 export function TopicManagement({
   request,
   role,
+  lang,
 }: {
   request: Request;
   role: Role;
+  lang: Lang;
 }) {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selected, setSelected] = useState<Topic | null>(null);
@@ -56,7 +59,7 @@ export function TopicManagement({
           : (next[0] ?? null),
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تحميل المواضيع.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تحميل المواضيع." : "Unable to load topics."));
     }
   };
   const loadItems = async () => {
@@ -64,7 +67,7 @@ export function TopicManagement({
     try {
       setItems(await request<Item[]>(`/api/v1/topics/${selected.id}/${tab}`));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تحميل الموارد.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تحميل الموارد." : "Unable to load resources."));
     }
   };
   useEffect(() => {
@@ -90,16 +93,16 @@ export function TopicManagement({
       setEditingTopic(null);
       await loadTopics();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر حفظ الموضوع.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حفظ الموضوع." : "Unable to save the topic."));
     }
   };
   const removeTopic = async (topic: Topic) => {
-    if (!window.confirm("حذف هذا الموضوع؟")) return;
+    if (!window.confirm(lang === "ar" ? "حذف هذا الموضوع؟" : "Delete this topic?")) return;
     try {
       await request(`/api/v1/topics/${topic.id}`, { method: "DELETE" });
       await loadTopics();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر حذف الموضوع.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حذف الموضوع." : "Unable to delete the topic."));
     }
   };
   const saveItem = async (event: React.FormEvent) => {
@@ -130,7 +133,7 @@ export function TopicManagement({
       setItemModal(false);
       await loadItems();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر حفظ المورد.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حفظ المورد." : "Unable to save the resource."));
     }
   };
   const openTopic = (topic?: Topic) => {
@@ -153,7 +156,7 @@ export function TopicManagement({
       const response = await fetch(`${API}/api/v1/topics/${tId}/export-pdf`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!response.ok) throw new Error("تعذر إنشاء تقرير PDF");
+      if (!response.ok) throw new Error(lang === "ar" ? "تعذر إنشاء تقرير PDF" : "Unable to generate the PDF report");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -164,7 +167,7 @@ export function TopicManagement({
       a.remove();
       window.URL.revokeObjectURL(url);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تصدير تقرير PDF.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تصدير تقرير PDF." : "Unable to export the PDF report."));
     }
   };
   return (
@@ -172,12 +175,12 @@ export function TopicManagement({
       <div className="page-header">
         <div>
           <p className="eyebrow">Topics</p>
-          <h1>إدارة المواضيع</h1>
-          <p className="subhead">تخصيص المصادر والكلمات لكل موضوع.</p>
+          <h1>{lang === "ar" ? "إدارة المواضيع" : "Topic management"}</h1>
+          <p className="subhead">{lang === "ar" ? "تخصيص المصادر والكلمات لكل موضوع." : "Customize sources and keywords for each topic."}</p>
         </div>
         {role === "super_admin" && (
           <button className="primary-button" onClick={() => openTopic()}>
-            <Plus size={16} /> موضوع جديد
+            <Plus size={16} /> {lang === "ar" ? "موضوع جديد" : "New topic"}
           </button>
         )}
       </div>
@@ -196,14 +199,14 @@ export function TopicManagement({
                 <span className="config-actions">
                   <button
                     className="icon-button"
-                    aria-label="تعديل الموضوع"
+                    aria-label={lang === "ar" ? "تعديل الموضوع" : "Edit topic"}
                     onClick={() => openTopic(topic)}
                   >
                     <Edit3 size={15} />
                   </button>
                   <button
                     className="icon-button danger-button"
-                    aria-label="حذف الموضوع"
+                    aria-label={lang === "ar" ? "حذف الموضوع" : "Delete topic"}
                     onClick={() => removeTopic(topic)}
                   >
                     <Trash2 size={15} />
@@ -218,21 +221,21 @@ export function TopicManagement({
             <div className="panel-heading">
               <div>
                 <p className="eyebrow">{selected.title}</p>
-                <h2>{selected.description || "موارد الموضوع"}</h2>
+                <h2>{selected.description || (lang === "ar" ? "موارد الموضوع" : "Topic resources")}</h2>
               </div>
               <div style={{ display: "flex", gap: "0.5rem" }}>
                 <button
                   type="button"
                   className="secondary-button"
                   onClick={() => exportPdf(selected.id, selected.title)}
-                  title="تصدير تقرير استخباراتي تنفيذي بصيغة PDF"
+                  title={lang === "ar" ? "تصدير تقرير استخباراتي تنفيذي بصيغة PDF" : "Export an executive intelligence report as PDF"}
                   style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}
                 >
-                  <FileText size={15} color="#3b82f6" /> تصدير تقرير PDF
+                  <FileText size={15} color="#3b82f6" /> {lang === "ar" ? "تصدير تقرير PDF" : "Export PDF report"}
                 </button>
                 {canManage && (
                   <button className="primary-button" onClick={() => openItem()}>
-                    <Plus size={15} /> إضافة
+                    <Plus size={15} /> {lang === "ar" ? "إضافة" : "Add"}
                   </button>
                 )}
               </div>
@@ -242,13 +245,13 @@ export function TopicManagement({
                 className={tab === "sources" ? "selected" : ""}
                 onClick={() => setTab("sources")}
               >
-                المصادر ({tab === "sources" ? items.length : "..."})
+                {lang === "ar" ? "المصادر" : "Sources"} ({tab === "sources" ? items.length : "..."})
               </button>
               <button
                 className={tab === "keywords" ? "selected" : ""}
                 onClick={() => setTab("keywords")}
               >
-                الكلمات ({tab === "keywords" ? items.length : "..."})
+                {lang === "ar" ? "الكلمات" : "Keywords"} ({tab === "keywords" ? items.length : "..."})
               </button>
             </div>
             {items.map((item) => (
@@ -265,32 +268,32 @@ export function TopicManagement({
                   </small>
                   {tab === "sources" && item.last_error && (
                     <small className="source-error-note" title={item.last_error}>
-                      تعذر الجلب: {item.last_error}
+                      {lang === "ar" ? "تعذر الجلب:" : "Fetch failed:"} {item.last_error}
                     </small>
                   )}
                 </span>
                 {tab === "sources" && item.status === "failed" && (
-                  <span className="badge source-failed-badge">فشل الجلب</span>
+                  <span className="badge source-failed-badge">{lang === "ar" ? "فشل الجلب" : "Fetch failed"}</span>
                 )}
                 {canManage && (
                   <span className="config-actions">
                     <button
                       className="icon-button"
-                      aria-label="تعديل المورد"
+                      aria-label={lang === "ar" ? "تعديل المورد" : "Edit resource"}
                       onClick={() => openItem(item)}
                     >
                       <Edit3 size={15} />
                     </button>
                     <button
                       className="icon-button danger-button"
-                      aria-label="حذف المورد"
+                      aria-label={lang === "ar" ? "حذف المورد" : "Delete resource"}
                       onClick={() =>
                         request(
                           `/api/v1/topics/${selected.id}/${tab}/${item.id}`,
                           { method: "DELETE" },
                         )
                           .then(loadItems)
-                          .catch(() => setError("تعذر حذف المورد."))
+                          .catch(() => setError(lang === "ar" ? "تعذر حذف المورد." : "Unable to delete the resource."))
                       }
                     >
                       <Trash2 size={15} />
@@ -310,7 +313,7 @@ export function TopicManagement({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-heading">
-              <h2>{editingTopic ? "تعديل الموضوع" : "إنشاء موضوع"}</h2>
+              <h2>{editingTopic ? (lang === "ar" ? "تعديل الموضوع" : "Edit topic") : (lang === "ar" ? "إنشاء موضوع" : "Create topic")}</h2>
               <button
                 type="button"
                 className="icon-button"
@@ -320,7 +323,7 @@ export function TopicManagement({
               </button>
             </div>
             <label>
-              اسم الموضوع
+              {lang === "ar" ? "اسم الموضوع" : "Topic name"}
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
@@ -328,14 +331,14 @@ export function TopicManagement({
               />
             </label>
             <label>
-              الوصف
+              {lang === "ar" ? "الوصف" : "Description"}
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
               />
             </label>
             <button className="primary-button" type="submit">
-              <Check size={15} /> حفظ
+              <Check size={15} /> {lang === "ar" ? "حفظ" : "Save"}
             </button>
           </form>
         </div>
@@ -348,7 +351,7 @@ export function TopicManagement({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-heading">
-              <h2>{editingItem ? "تعديل المورد" : "إضافة مورد"}</h2>
+              <h2>{editingItem ? (lang === "ar" ? "تعديل المورد" : "Edit resource") : (lang === "ar" ? "إضافة مورد" : "Add resource")}</h2>
               <button
                 type="button"
                 className="icon-button"
@@ -360,7 +363,7 @@ export function TopicManagement({
             {tab === "sources" && (
               <>
                 <label>
-                  الاسم
+                  {lang === "ar" ? "الاسم" : "Name"}
                   <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -368,7 +371,7 @@ export function TopicManagement({
                   />
                 </label>
                 <label>
-                  المنصة
+                  {lang === "ar" ? "المنصة" : "Platform"}
                   <select
                     value={platform}
                     onChange={(event) => setPlatform(event.target.value)}
@@ -378,6 +381,7 @@ export function TopicManagement({
                     <option value="facebook">Facebook</option>
                     <option value="reddit">Reddit</option>
                     <option value="youtube">YouTube</option>
+                    <option value="x">X (Twitter)</option>
                   </select>
                 </label>
                 <label>
@@ -390,7 +394,7 @@ export function TopicManagement({
               </>
             )}
             <label>
-              {tab === "sources" ? "الرابط أو المعرّف" : "الكلمة المفتاحية"}
+              {tab === "sources" ? (lang === "ar" ? "الرابط أو المعرّف" : "URL or handle") : (lang === "ar" ? "الكلمة المفتاحية" : "Keyword")}
               <input
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -398,7 +402,7 @@ export function TopicManagement({
               />
             </label>
             <button className="primary-button" type="submit">
-              <Check size={15} /> حفظ
+              <Check size={15} /> {lang === "ar" ? "حفظ" : "Save"}
             </button>
           </form>
         </div>

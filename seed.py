@@ -83,12 +83,10 @@ def seed_database() -> None:
         )
         for platform, name, target, actor_id in sample_sources:
             exists = db.query(MonitoredSource).filter(
-                MonitoredSource.topic_id == topic.id,
                 MonitoredSource.url_or_handle == target,
             ).first()
             if exists is None:
                 db.add(MonitoredSource(
-                    topic=topic,
                     platform=platform,
                     name=name,
                     url_or_handle=target,
@@ -102,9 +100,9 @@ def seed_database() -> None:
             (topic_b, "youtube", "Public Health YouTube", "https://www.youtube.com/@example-health", "apify/youtube-scraper"),
         )
         for assigned_topic, platform, name, target, actor_id in topic_sources:
-            source = db.query(MonitoredSource).filter(MonitoredSource.topic_id == assigned_topic.id, MonitoredSource.url_or_handle == target).first()
+            source = db.query(MonitoredSource).filter(MonitoredSource.url_or_handle == target).first()
             if source is None:
-                source = MonitoredSource(topic=assigned_topic, platform=platform, name=name, url_or_handle=target, target_type="url", apify_actor_id=actor_id, status="active")
+                source = MonitoredSource(platform=platform, name=name, url_or_handle=target, target_type="url", apify_actor_id=actor_id, status="active")
                 db.add(source)
                 db.flush()
             post = db.query(Post).filter(Post.external_id == f"seed-{assigned_topic.id}-{source.id}").first()

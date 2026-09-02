@@ -3,7 +3,7 @@ Monitored source database model.
 Represents social media platforms and URLs being monitored for content.
 """
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.db.session import Base
@@ -25,9 +25,11 @@ class MonitoredSource(Base):
     """
 
     __tablename__ = "monitored_sources"
+    __table_args__ = (
+        UniqueConstraint("url_or_handle", name="uq_monitored_sources_url_or_handle"),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
-    topic_id = Column(Integer, ForeignKey("topics.id", ondelete="CASCADE"), nullable=False, index=True)
     platform = Column(
         String(50),
         nullable=False,
@@ -50,7 +52,6 @@ class MonitoredSource(Base):
 
     # Relationships
     posts = relationship("Post", back_populates="source", cascade="all, delete-orphan")
-    topic = relationship("Topic", back_populates="sources")
 
     def __repr__(self) -> str:
         return f"<MonitoredSource(id={self.id}, platform='{self.platform}', name='{self.name}')>"

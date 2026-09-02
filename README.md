@@ -285,6 +285,7 @@ setup.bat
    ```
    > 🌐 الخادم الخلفي سيعمل على: `http://localhost:8000`  
    > 📚 وثائق Swagger التفاعلية: `http://localhost:8000/docs`
+   > 🧩 يمكن تصدير OpenAPI عبر: `python export_openapi.py --output openapi.json`
 
 ---
 
@@ -399,9 +400,18 @@ signaldesk/
 
 ## 📡 توثيق واجهات البرمجة (API Documentation)
 
+لشرح الاستخدام والتحكم بشكل مستقل راجع: [API_USAGE.md](API_USAGE.md)
+
 يوفر خادم FastAPI توثيقاً تفاعلياً حياً لجميع المسارات:
 - **Swagger UI:** `http://localhost:8000/docs` (يتيح تجربة الـ Endpoints مباشرة مع تضمين Bearer Token).
 - **ReDoc:** `http://localhost:8000/redoc` (عرض مفصل وموثق للمطورين).
+- **OpenAPI JSON:** `http://localhost:8000/openapi.json` أو عبر الأمر `python export_openapi.py --output openapi.json`.
+
+يمكن التحكم في روابط التوثيق والإخراج من ملف `.env` باستخدام:
+- `API_DOCS_ENABLED=false` لإخفاء Swagger و ReDoc مع إبقاء OpenAPI متاحاً.
+- `API_OPENAPI_ENABLED=false` لإيقاف Swagger و ReDoc وملف OpenAPI من الخادم.
+- `API_DOCS_URL`, `API_REDOC_URL`, `API_OPENAPI_URL` لتغيير المسارات الافتراضية.
+- `CORS_ALLOW_ORIGINS` لتحديد واجهات Frontend المسموح لها بالاتصال، مفصولة بفواصل.
 
 ### أبرز المسارات (Key API Endpoints):
 - `POST /api/auth/login`: مصادقة المستخدمين وتوليد JWT Token.

@@ -38,7 +38,7 @@ def test_generate_pdf_report_success(memory_db):
     memory_db.add_all([user, topic])
     memory_db.commit()
 
-    source = MonitoredSource(topic_id=topic.id, platform="telegram", name="Intel Channel", url_or_handle="@intel_feed")
+    source = MonitoredSource(platform="telegram", name="Intel Channel", url_or_handle="@intel_feed")
     memory_db.add(source)
     memory_db.commit()
 

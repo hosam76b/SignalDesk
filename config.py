@@ -76,8 +76,15 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     app_name: str = "SignalDesk"
     app_version: str = "1.0.0"
+    api_docs_enabled: bool = True
+    api_openapi_enabled: bool = True
+    api_docs_url: str = "/docs"
+    api_redoc_url: str = "/redoc"
+    api_openapi_url: str = "/openapi.json"
+    cors_allow_origins: str = "*"
     scraping_enabled: bool = True
     scraping_interval_seconds: int = 300
+    spider_proxy_url: str = ""
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parent / ".env",

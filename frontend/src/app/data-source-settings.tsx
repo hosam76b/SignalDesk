@@ -92,7 +92,7 @@ export function DataSourceSettings({ lang, onClose }: { lang: Lang; onClose: () 
             <p className="eyebrow">{lang === 'ar' ? 'التكاملات' : 'Integrations'}</p>
             <h2>{lang === 'ar' ? 'إعدادات مصادر البيانات' : 'Data source settings'}</h2>
           </div>
-          <button className="icon-button" onClick={onClose} aria-label="إغلاق"><X size={18}/></button>
+          <button className="icon-button" onClick={onClose} aria-label={lang === 'ar' ? 'إغلاق' : 'Close'}><X size={18}/></button>
         </div>
         <p className="settings-note">
           {lang === 'ar'

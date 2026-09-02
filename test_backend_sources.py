@@ -20,7 +20,6 @@ def test_source_crud_toggle_and_validation(topic_a_admin_client, seeded_db):
     assert created.status_code == 201, f"Valid source creation failed: {created.text}"
     source = created.json()
     source_id = source["id"]
-    assert source["topic_id"] == topic_id, "Created source must be assigned to the requested topic"
     assert source["status"] == "active", "New sources must start active"
 
     listed = topic_a_admin_client.get(f"/api/v1/topics/{topic_id}/sources")
@@ -48,6 +47,12 @@ def test_source_crud_toggle_and_validation(topic_a_admin_client, seeded_db):
         json=source_payload(url="javascript:alert(1)"),
     )
     assert invalid.status_code == 422, "Non-HTTP source targets must be rejected"
+
+    duplicate = topic_a_admin_client.post(
+        f"/api/v1/topics/{topic_id}/sources",
+        json=source_payload(name="Duplicate Source", url="https://example.com/a"),
+    )
+    assert duplicate.status_code == 409, "A source target must be globally unique"
 
 
 def test_source_management_is_topic_isolated(topic_a_admin_client, seeded_db):

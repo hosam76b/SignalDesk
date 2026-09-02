@@ -40,6 +40,7 @@ type Lang = "ar" | "en";
 type Page =
   | "overview"
   | "feed"
+  | "spider"
   | "graph"
   | "management"
   | "topics"
@@ -117,10 +118,41 @@ type Item = {
 type ApprovalsSummary = { sources: Item[]; keywords: Item[] };
 type ScraperStatus = { status: "idle" | "running"; message: string; last_run?: string | null; is_running: boolean };
 type ScrapingResult = { success: boolean; total_sources: number; total_posts_found: number; new_posts_saved: number; errors: { source?: string; error?: string }[]; duration_seconds: number; sources_processed: Record<string, { sources?: number; posts_found?: number; posts_saved?: number }> };
+type SpiderRunStatus = {
+  run_id: string;
+  status: "queued" | "running" | "completed";
+  topic_id: number;
+  pages_crawled: number;
+  accepted: number;
+  discarded: number;
+  active_keywords: string[];
+  errors: { url?: string; error?: string }[];
+  started_at: string;
+  finished_at: string | null;
+};
+type SpiderActiveStatus = { is_running: boolean; active_runs: number; total_runs: number; last_run_id: string | null; last_status: string | null };
+
+function SpiderIcon({ size = 18, color = "currentColor", className }: { size?: number; color?: string; className?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="9.5" r="2.6" />
+      <path d="M12 12.1v6.9" />
+      <path d="M9.6 9 3.5 5.2" />
+      <path d="M9.2 10.3 2.2 11.4" />
+      <path d="M9.6 12.4 3.9 17.2" />
+      <path d="M14.4 9l6.1-3.8" />
+      <path d="M14.8 10.3l7-1.1" />
+      <path d="M14.4 12.4l5.7 4.8" />
+      <path d="M10.2 6.8 8.6 3.2" />
+      <path d="M13.8 6.8l1.6-3.6" />
+    </svg>
+  );
+}
 const labels = {
   ar: {
     overview: "نظرة عامة",
     feed: "موجز الاستخبارات",
+    spider: "متابعة السبايدر",
     graph: "شبكة الانتشار و CIB",
     management: "الروابط والكلمات المفتاحية",
     automation: "مراقبة الأتمتة",
@@ -138,6 +170,7 @@ const labels = {
   en: {
     overview: "Overview",
     feed: "Intelligence feed",
+    spider: "Spider monitor",
     graph: "Propagation & CIB",
     management: "Sources & keywords",
     automation: "Automation monitor",
@@ -153,17 +186,37 @@ const labels = {
     signout: "Sign out",
   },
 };
+// Tracks the active UI language so ApiError messages (thrown from a shared, lang-agnostic
+// request() helper) still localize correctly; kept in sync by Home's language toggle.
+let currentApiLang: Lang = "ar";
+function setApiLang(next: Lang) {
+  currentApiLang = next;
+}
 class ApiError extends Error {
   status: number;
   constructor(status: number) {
+    const messages =
+      currentApiLang === "ar"
+        ? {
+            401: "انتهت جلسة الدخول.",
+            403: "لا تملك صلاحية لهذا الإجراء.",
+            422: "تحقق من البيانات المدخلة.",
+            default: "تعذر إكمال الطلب.",
+          }
+        : {
+            401: "Your session has expired.",
+            403: "You don't have permission for this action.",
+            422: "Check the submitted data.",
+            default: "Unable to complete the request.",
+          };
     super(
       status === 401
-        ? "انتهت جلسة الدخول."
+        ? messages[401]
         : status === 403
-          ? "لا تملك صلاحية لهذا الإجراء."
+          ? messages[403]
           : status === 422
-            ? "تحقق من البيانات المدخلة."
-            : "تعذر إكمال الطلب.",
+            ? messages[422]
+            : messages.default,
     );
     this.status = status;
   }
@@ -235,7 +288,7 @@ function Login({
       };
       onLogin(data.access_token, data.role);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر تسجيل الدخول");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تسجيل الدخول" : "Unable to sign in"));
     }
   };
   const submitForgot = async (event: React.FormEvent) => {
@@ -255,7 +308,7 @@ function Login({
           : "If that email is registered, a password reset link has been sent.",
       );
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر إرسال الطلب.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر إرسال الطلب." : "Unable to send the request."));
     }
   };
   const submitReset = async (event: React.FormEvent) => {
@@ -273,7 +326,7 @@ function Login({
       setMode("login");
       window.history.replaceState({}, "", window.location.pathname);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر إعادة تعيين كلمة المرور.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر إعادة تعيين كلمة المرور." : "Unable to reset the password."));
     }
   };
   return (
@@ -507,6 +560,228 @@ function AutomationMonitor({ token, role, lang }: { token: string; role: Role; l
     </div>
   );
 }
+
+function SpiderMonitor({ token, lang }: { token: string; lang: Lang }) {
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [topicId, setTopicId] = useState<number | null>(null);
+  const [searchTopics, setSearchTopics] = useState("");
+  const [targetKeywords, setTargetKeywords] = useState("");
+  const [seedUrls, setSeedUrls] = useState("");
+  const [relevanceThreshold, setRelevanceThreshold] = useState(30);
+  const [maxDepth, setMaxDepth] = useState(1);
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [runs, setRuns] = useState<SpiderRunStatus[]>([]);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [injectText, setInjectText] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    get<Topic[]>("/api/v1/topics", token)
+      .then((items) => { setTopics(items); setTopicId((current) => current ?? items[0]?.id ?? null); })
+      .catch(() => setTopics([]));
+  }, [token]);
+
+  const loadRuns = () => get<SpiderRunStatus[]>("/api/v1/spider/runs", token).then(setRuns).catch(() => setRuns([]));
+  useEffect(() => {
+    void loadRuns();
+    const timer = window.setInterval(() => void loadRuns(), 5000);
+    return () => window.clearInterval(timer);
+  }, [token]);
+
+  const activeRun = runs.find((run) => run.run_id === activeRunId) ?? runs.find((run) => run.status === "running") ?? runs[0] ?? null;
+
+  const startRun = async () => {
+    if (!topicId || starting) return;
+    const parsedSeedUrls = seedUrls.split("\n").map((item) => item.trim()).filter(Boolean);
+    const parsedSearchTopics = searchTopics.split(",").map((item) => item.trim()).filter(Boolean);
+    const parsedKeywords = targetKeywords.split(",").map((item) => item.trim()).filter(Boolean);
+    if (parsedSeedUrls.length === 0 && parsedSearchTopics.length === 0 && parsedKeywords.length === 0) {
+      setError(
+        lang === "ar"
+          ? "أدخل كلمات مفتاحية أو مواضيع بحث أو روابط بذرة على الأقل لبدء الزحف."
+          : "Enter at least one search topic, keyword, or seed URL to start crawling.",
+      );
+      return;
+    }
+    setStarting(true);
+    setError("");
+    setMessage("");
+    try {
+      const payload = {
+        topic_id: topicId,
+        search_topics: parsedSearchTopics,
+        target_keywords: parsedKeywords,
+        seed_urls: parsedSeedUrls,
+        relevance_threshold: relevanceThreshold,
+        max_depth: maxDepth,
+        proxy_enabled: proxyEnabled,
+      };
+      const result = await request<{ run_id: string; status: string; message: string }>("/api/v1/spider/run", token, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      setActiveRunId(result.run_id);
+      setMessage(result.message || (lang === "ar" ? "تم بدء دورة الزحف." : "Spider run started."));
+      await loadRuns();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر بدء الزحف." : "Unable to start the spider."));
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const injectTopic = async () => {
+    if (!activeRun || !injectText.trim()) return;
+    try {
+      await request<SpiderRunStatus>("/api/v1/spider/add-topic", token, {
+        method: "POST",
+        body: JSON.stringify({
+          run_id: activeRun.run_id,
+          search_topics: [],
+          target_keywords: injectText.split(",").map((item) => item.trim()).filter(Boolean),
+        }),
+      });
+      setInjectText("");
+      await loadRuns();
+    } catch {
+      setError(lang === "ar" ? "تعذر إضافة الكلمات إلى الدفعة الجارية." : "Unable to inject keywords into the run.");
+    }
+  };
+
+  const stopRun = async () => {
+    if (!activeRun || stopping) return;
+    setStopping(true);
+    setError("");
+    try {
+      await request<SpiderRunStatus>("/api/v1/spider/stop", token, {
+        method: "POST",
+        body: JSON.stringify({ run_id: activeRun.run_id }),
+      });
+      await loadRuns();
+    } catch {
+      setError(lang === "ar" ? "تعذر إيقاف التشغيل." : "Unable to stop the run.");
+    } finally {
+      setStopping(false);
+    }
+  };
+
+  return (
+    <div className="page-content automation-page spider-page">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">SPIDER ENGINE</p>
+          <h1>{lang === "ar" ? "متابعة السبايدر" : "Spider monitor"}</h1>
+          <p className="subhead">{lang === "ar" ? "شغّل زحفًا ديناميكيًا وتابع النتائج لحظيًا." : "Run dynamic crawls and track their results live."}</p>
+        </div>
+      </div>
+      {error && <div className="data-error">{error}</div>}
+      {message && <div className="connection-message">{message}</div>}
+      <div className="automation-grid">
+        <section className="panel automation-panel">
+          <div className="panel-heading">
+            <div><p className="eyebrow">NEW RUN</p><h2>{lang === "ar" ? "تشغيل جديد" : "Start a new run"}</h2></div>
+            <SpiderIcon size={20} color="var(--cyan)" />
+          </div>
+          <label>{lang === "ar" ? "الموضوع" : "Topic"}
+            <select value={topicId ?? ""} onChange={(event) => setTopicId(Number(event.target.value))}>
+              {topics.map((topic) => <option value={topic.id} key={topic.id}>{topic.title}</option>)}
+            </select>
+          </label>
+          <label>{lang === "ar" ? "مواضيع البحث (مفصولة بفواصل)" : "Search topics (comma separated)"}
+            <input value={searchTopics} onChange={(event) => setSearchTopics(event.target.value)} placeholder="اختراق بنكي, Ransomware" />
+          </label>
+          <label>{lang === "ar" ? "الكلمات المفتاحية (مفصولة بفواصل)" : "Target keywords (comma separated)"}
+            <input value={targetKeywords} onChange={(event) => setTargetKeywords(event.target.value)} placeholder="بيانات, تسريب, CVE, breach" />
+          </label>
+          <label>{lang === "ar" ? "روابط البذرة (سطر لكل رابط، اختياري)" : "Seed URLs (one per line, optional)"}
+            <textarea rows={3} value={seedUrls} onChange={(event) => setSeedUrls(event.target.value)} placeholder="https://example.com/news" />
+            <small className="spider-hint">{lang === "ar" ? "اتركه فارغًا ليبحث السبايدر تلقائيًا في الإنترنت عن روابط غير محددة اعتمادًا على الكلمات المفتاحية." : "Leave empty to let the spider search the open web for unspecified links based on your keywords."}</small>
+          </label>
+          <div className="spider-form-row">
+            <label>{lang === "ar" ? "حد الصلة %" : "Relevance %"}
+              <input type="number" min={0} max={100} value={relevanceThreshold} onChange={(event) => setRelevanceThreshold(Number(event.target.value))} />
+            </label>
+            <label>{lang === "ar" ? "عمق الزحف" : "Max depth"}
+              <input type="number" min={1} max={3} value={maxDepth} onChange={(event) => setMaxDepth(Number(event.target.value))} />
+            </label>
+            <label className="spider-checkbox">
+              <input type="checkbox" checked={proxyEnabled} onChange={(event) => setProxyEnabled(event.target.checked)} />
+              {lang === "ar" ? "تدوير البروكسي" : "Proxy rotation"}
+            </label>
+          </div>
+          <button type="button" className="primary-button spider-start-button" disabled={starting || !topicId} onClick={() => void startRun()}>
+            {starting ? <span className="loading-spinner" /> : <SpiderIcon size={15} />}
+            {starting ? (lang === "ar" ? "جار البدء..." : "Starting...") : (lang === "ar" ? "بدء الزحف" : "Start crawl")}
+          </button>
+        </section>
+        <section className="panel automation-panel">
+          <div className="panel-heading">
+            <div><p className="eyebrow">LIVE RUN</p><h2>{lang === "ar" ? "التشغيل الحالي" : "Current run"}</h2></div>
+            {activeRun && (
+              <div className="spider-live-actions">
+                <span className={`badge ${activeRun.status === "running" ? "badge-success" : "badge-neutral"}`}>{activeRun.status}</span>
+                {activeRun.status === "running" && (
+                  <button type="button" className="secondary-button spider-stop-button" disabled={stopping} onClick={() => void stopRun()}>
+                    {stopping ? <span className="loading-spinner" /> : <X size={14} />}
+                    {lang === "ar" ? "إيقاف" : "Stop"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {activeRun ? (
+            <>
+              <div className="automation-details">
+                <div><span>{lang === "ar" ? "صفحات تم زحفها" : "Pages crawled"}</span><strong>{activeRun.pages_crawled}</strong></div>
+                <div><span>{lang === "ar" ? "مقبولة" : "Accepted"}</span><strong>{activeRun.accepted}</strong></div>
+                <div><span>{lang === "ar" ? "مرفوضة" : "Discarded"}</span><strong>{activeRun.discarded}</strong></div>
+                <div><span>{lang === "ar" ? "أخطاء" : "Errors"}</span><strong>{activeRun.errors.length}</strong></div>
+              </div>
+              <div className="spider-keywords">
+                <span>{lang === "ar" ? "الكلمات النشطة" : "Active keywords"}</span>
+                <div className="spider-keyword-tags">
+                  {activeRun.active_keywords.map((word) => <span className="badge badge-neutral" key={word}>{word}</span>)}
+                </div>
+              </div>
+              {activeRun.status === "running" && (
+                <div className="spider-inject">
+                  <input value={injectText} onChange={(event) => setInjectText(event.target.value)} placeholder={lang === "ar" ? "إضافة كلمات للدفعة الجارية" : "Inject keywords into this run"} />
+                  <button type="button" className="secondary-button" onClick={() => void injectTopic()}><Plus size={14} />{lang === "ar" ? "إضافة" : "Add"}</button>
+                </div>
+              )}
+              {activeRun.errors.length > 0 && (
+                <div className="automation-errors">
+                  {activeRun.errors.map((item, index) => <div key={index}><AlertTriangle size={14} /><span>{item.url ?? "?"}</span><small>{item.error ?? ""}</small></div>)}
+                </div>
+              )}
+            </>
+          ) : <div className="empty-state">{lang === "ar" ? "لا يوجد تشغيل نشط حاليًا." : "No active run right now."}</div>}
+        </section>
+      </div>
+      <section className="panel automation-panel spider-history">
+        <div className="panel-heading">
+          <div><p className="eyebrow">HISTORY</p><h2>{lang === "ar" ? "سجل التشغيلات" : "Run history"}</h2></div>
+        </div>
+        {runs.length ? (
+          <div className="spider-history-list">
+            {runs.map((run) => (
+              <div className={`spider-history-row ${run.run_id === activeRun?.run_id ? "active" : ""}`} key={run.run_id} onClick={() => setActiveRunId(run.run_id)}>
+                <span className={`automation-status-dot ${run.status === "running" ? "running" : "idle"}`} />
+                <strong>{run.run_id}</strong>
+                <span>{run.accepted}/{run.pages_crawled} {lang === "ar" ? "مقبولة" : "accepted"}</span>
+                <span className="badge badge-neutral">{run.status}</span>
+              </div>
+            ))}
+          </div>
+        ) : <div className="empty-state">{lang === "ar" ? "لا توجد تشغيلات بعد." : "No runs yet."}</div>}
+      </section>
+    </div>
+  );
+}
+
 function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
@@ -514,6 +789,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [spiderStatus, setSpiderStatus] = useState<SpiderActiveStatus | null>(null);
   const [activityPage, setActivityPage] = useState(1);
   const [error, setError] = useState("");
   const activityPageSize = 5;
@@ -526,37 +802,55 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
     activityPage * activityPageSize,
   );
   useEffect(() => {
-    Promise.all([
-      get<Stats>("/api/dashboard/stats", token),
-      get<Post[]>("/api/dashboard/recent-activity", token),
-      get<AiStatus>("/api/ai/status", token),
-      get<Topic[]>("/api/v1/topics", token),
-    ])
-      .then(([s, p, ai, nextTopics]) => {
-        setStats(s);
-        setPosts(p);
-        setAiStatus(ai);
-        setTopics(nextTopics);
-        setSelectedTopicId((current) => current ?? nextTopics[0]?.id ?? null);
-        setActivityPage(1);
-      })
-      .catch(() =>
-        setError(
-          language === "ar" ? "تعذر تحميل البيانات." : "Unable to load data.",
-        ),
-      );
+    const load = () =>
+      Promise.all([
+        get<Stats>("/api/dashboard/stats", token),
+        get<Post[]>("/api/dashboard/recent-activity", token),
+        get<AiStatus>("/api/ai/status", token),
+        get<Topic[]>("/api/v1/topics", token),
+      ])
+        .then(([s, p, ai, nextTopics]) => {
+          setStats(s);
+          setPosts(p);
+          setAiStatus(ai);
+          setTopics(nextTopics);
+          setSelectedTopicId((current) => current ?? nextTopics[0]?.id ?? null);
+          setActivityPage((current) => current);
+        })
+        .catch(() =>
+          setError(
+            language === "ar" ? "تعذر تحميل البيانات." : "Unable to load data.",
+          ),
+        );
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
   }, [token, language]);
 
   useEffect(() => {
     if (!selectedTopicId) return;
-    get<{ alerts: AlertItem[]; summary?: AlertSummary }>(`/api/v1/analytics/topics/${selectedTopicId}/alerts`, token)
-      .then((payload) => setAlerts(payload.alerts ?? []))
-      .catch(() => setAlerts([]));
+    const load = () =>
+      get<{ alerts: AlertItem[]; summary?: AlertSummary }>(`/api/v1/analytics/topics/${selectedTopicId}/alerts`, token)
+        .then((payload) => setAlerts(payload.alerts ?? []))
+        .catch(() => setAlerts([]));
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
   }, [selectedTopicId, token]);
+
+  useEffect(() => {
+    const load = () =>
+      get<SpiderActiveStatus>("/api/v1/spider/active-status", token)
+        .then(setSpiderStatus)
+        .catch(() => setSpiderStatus(null));
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
+  }, [token]);
 
   const exportReport = async (format: "pdf" | "csv" | "json" | "xlsx") => {
     if (!selectedTopicId) return;
-    const response = await fetch(`${API}/api/v1/analytics/topics/${selectedTopicId}/reports/executive-pdf`, {
+    const response = await fetch(`${API}/api/v1/analytics/topics/${selectedTopicId}/reports/executive-pdf?language=${language}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) throw new Error(language === "ar" ? "تعذر تصدير التقرير." : "Unable to export the report.");
@@ -620,6 +914,14 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
               : "Summary of live database data."}
           </p>
         </div>
+        <div className={`spider-status-badge ${spiderStatus?.is_running ? "running" : "idle"}`} title={language === "ar" ? "حالة السبايدر" : "Spider status"}>
+          <SpiderIcon size={17} />
+          <span>
+            {spiderStatus?.is_running
+              ? (language === "ar" ? "السبايدر يعمل" : "Spider running")
+              : (language === "ar" ? "السبايدر متوقف" : "Spider idle")}
+          </span>
+        </div>
       </div>
       {error && <div className="data-error">{error}</div>}
       <div className="metric-grid">
@@ -666,7 +968,9 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
           <select value={selectedTopicId ?? ""} onChange={(event) => setSelectedTopicId(Number(event.target.value))} disabled={!topics.length}>
             {topics.map((topic) => <option value={topic.id} key={topic.id}>{topic.title}</option>)}
           </select>
-          <button type="button" className="primary-button" onClick={() => void exportReport("pdf")}>Export Executive PDF</button>
+          <button type="button" className="primary-button" onClick={() => void exportReport("pdf")}>
+            {language === "ar" ? "تصدير التقرير التنفيذي PDF" : "Export Executive PDF"}
+          </button>
           <button type="button" className="secondary-button" onClick={() => void exportDataset("csv")}>CSV</button>
           <button type="button" className="secondary-button" onClick={() => void exportDataset("json")}>JSON</button>
           <button type="button" className="secondary-button" onClick={() => void exportDataset("xlsx")}>XLSX</button>
@@ -730,7 +1034,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
                 ),
               )
             ) : (
-              <p className="loading-text">جار التحميل...</p>
+              <p className="loading-text">{language === "ar" ? "جار التحميل..." : "Loading..."}</p>
             )}
           </div>
         </div>
@@ -772,7 +1076,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
               </small>
             </span>
             <span className="badge badge-neutral">
-              {post.severity_level || "غير محلل"}
+              {post.severity_level || (language === "ar" ? "غير محلل" : "Unanalyzed")}
             </span>
           </div>
         ))}
@@ -783,17 +1087,17 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
               disabled={activityPage === 1}
               onClick={() => setActivityPage(activityPage - 1)}
             >
-              السابق
+              {language === "ar" ? "السابق" : "Previous"}
             </button>
             <span>
-              صفحة {activityPage} من {activityPageCount}
+              {language === "ar" ? `صفحة ${activityPage} من ${activityPageCount}` : `Page ${activityPage} of ${activityPageCount}`}
             </span>
             <button
               className="secondary-button"
               disabled={activityPage === activityPageCount}
               onClick={() => setActivityPage(activityPage + 1)}
             >
-              التالي
+              {language === "ar" ? "التالي" : "Next"}
             </button>
           </div>
         )}
@@ -825,10 +1129,12 @@ function resolveMediaUrl(url: string): string {
 function PostDetailDialog({
   post,
   token,
+  lang,
   onClose,
 }: {
   post: Post;
   token: string;
+  lang: Lang;
   onClose: () => void;
 }) {
   const [logs, setLogs] = useState<AuditRecord[]>([]);
@@ -845,7 +1151,7 @@ function PostDetailDialog({
       .then((records) =>
         setLogs(records.filter((record) => record.post_id === post.id)),
       )
-      .catch(() => setError("تعذر تحميل نشاط الخبر."));
+      .catch(() => setError(lang === "ar" ? "تعذر تحميل نشاط الخبر." : "Unable to load news activity."));
   useEffect(() => {
     void loadLogs();
   }, [post.id, post.topic_id, token]);
@@ -873,7 +1179,7 @@ function PostDetailDialog({
       );
       await loadLogs();
     } catch {
-      setError("تعذر تحديث أولوية الخبر.");
+      setError(lang === "ar" ? "تعذر تحديث أولوية الخبر." : "Unable to update the news priority.");
     } finally {
       setSaving(false);
     }
@@ -891,15 +1197,15 @@ function PostDetailDialog({
           <X size={18} />
         </button>
         <p className="eyebrow">{post.platform}</p>
-        <h2>{post.title || "منشور بدون عنوان"}</h2>
+        <h2>{post.title || (lang === "ar" ? "منشور بدون عنوان" : "Untitled post")}</h2>
         <p className="dialog-source">
-          {post.author} · {new Date(post.scraped_at).toLocaleString("ar-EG")}
+          {post.author} · {new Date(post.scraped_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}
         </p>
         <div className="config-actions">
           <button
             className={`icon-button ${post.is_important ? "priority-active" : ""}`}
-            title="مهم"
-            aria-label="وضع علامة مهم"
+            title={lang === "ar" ? "مهم" : "Important"}
+            aria-label={lang === "ar" ? "وضع علامة مهم" : "Mark as important"}
             disabled={saving}
             onClick={() => mark("is_important")}
           >
@@ -907,8 +1213,8 @@ function PostDetailDialog({
           </button>
           <button
             className={`icon-button ${post.is_dangerous ? "danger-active" : ""}`}
-            title="خطير"
-            aria-label="وضع علامة خطير"
+            title={lang === "ar" ? "خطير" : "Dangerous"}
+            aria-label={lang === "ar" ? "وضع علامة خطير" : "Mark as dangerous"}
             disabled={saving}
             onClick={() => mark("is_dangerous")}
           >
@@ -935,7 +1241,7 @@ function PostDetailDialog({
                 <img
                   key={index}
                   src={resolveMediaUrl(media)}
-                  alt="وسائط الخبر"
+                  alt={lang === "ar" ? "وسائط الخبر" : "News media"}
                   onClick={() => setZoomImage(resolveMediaUrl(media))}
                   style={{ cursor: "zoom-in" }}
                 />
@@ -943,38 +1249,38 @@ function PostDetailDialog({
             )}
           </div>
         ) : (
-          <div className="media-empty">لا توجد صورة أو فيديو لهذا الخبر.</div>
+          <div className="media-empty">{lang === "ar" ? "لا توجد صورة أو فيديو لهذا الخبر." : "No image or video for this news item."}</div>
         )}
         <div className="config-tabs">
           <button className={tab === "original" ? "selected" : ""} onClick={() => setTab("original")}>
-            النص الأصلي
+            {lang === "ar" ? "النص الأصلي" : "Original text"}
           </button>
           <button className={tab === "ocr" ? "selected" : ""} onClick={() => setTab("ocr")}>
-            نص الصور (OCR)
+            {lang === "ar" ? "نص الصور (OCR)" : "Image text (OCR)"}
           </button>
           <button className={tab === "transcript" ? "selected" : ""} onClick={() => setTab("transcript")}>
-            نص الصوت/الفيديو
+            {lang === "ar" ? "نص الصوت/الفيديو" : "Audio/video transcript"}
           </button>
         </div>
         <p className="dialog-content">
           {tab === "original"
             ? post.content
             : tab === "ocr"
-              ? (detail.extracted_ocr_text || (detail.media_status === "pending" ? "جارٍ المعالجة..." : "لا يوجد نص مستخرج من الصور."))
-              : (detail.video_transcript || (detail.media_status === "pending" ? "جارٍ المعالجة..." : "لا يوجد نص مفرغ من الصوت/الفيديو."))}
+              ? (detail.extracted_ocr_text || (detail.media_status === "pending" ? (lang === "ar" ? "جارٍ المعالجة..." : "Processing...") : (lang === "ar" ? "لا يوجد نص مستخرج من الصور." : "No text extracted from images.")))
+              : (detail.video_transcript || (detail.media_status === "pending" ? (lang === "ar" ? "جارٍ المعالجة..." : "Processing...") : (lang === "ar" ? "لا يوجد نص مفرغ من الصوت/الفيديو." : "No transcript available from audio/video.")))}
         </p>
         <div className="panel dialog-analytics">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Combined analytics</p>
-              <h3>تحليل موحّد للنص والوسائط</h3>
+              <h3>{lang === "ar" ? "تحليل موحّد للنص والوسائط" : "Combined text & media analysis"}</h3>
             </div>
             <Activity size={18} />
           </div>
           <div className="config-row">
             <span>
-              <strong>المشاعر</strong>
-              <small>{detail.sentiment ?? "غير محدد"}{detail.sentiment_score != null ? ` (${detail.sentiment_score})` : ""}</small>
+              <strong>{lang === "ar" ? "المشاعر" : "Sentiment"}</strong>
+              <small>{detail.sentiment ?? (lang === "ar" ? "غير محدد" : "Undetermined")}{detail.sentiment_score != null ? ` (${detail.sentiment_score})` : ""}</small>
             </span>
             <span className="badge badge-neutral">{detail.media_status ?? "pending"}</span>
           </div>
@@ -982,7 +1288,7 @@ function PostDetailDialog({
             <div className="severity-meter-track">
               <div className="severity-meter-fill" style={{ width: `${meterValue}%` }} />
             </div>
-            <small>{detail.severity_level ?? "غير محلل"}</small>
+            <small>{detail.severity_level ?? (lang === "ar" ? "غير محلل" : "Unanalyzed")}</small>
           </div>
           {entityTags.length > 0 && (
             <div className="entity-tags">
@@ -999,14 +1305,14 @@ function PostDetailDialog({
             target="_blank"
             rel="noreferrer"
           >
-            فتح المصدر الأصلي <ArrowUpRight size={15} />
+            {lang === "ar" ? "فتح المصدر الأصلي" : "Open original source"} <ArrowUpRight size={15} />
           </a>
         )}
         <div className="dialog-activity">
           <div className="panel-heading">
             <div>
               <p className="eyebrow">Activity</p>
-              <h3>نشاط المستخدمين</h3>
+              <h3>{lang === "ar" ? "نشاط المستخدمين" : "User activity"}</h3>
             </div>
             <ShieldCheck size={18} />
           </div>
@@ -1024,23 +1330,23 @@ function PostDetailDialog({
                       ? Object.entries(log.details)
                           .filter(([, value]) => value)
                           .map(([key]) => key)
-                          .join("، ")
+                          .join(lang === "ar" ? "، " : ", ")
                       : ""}
                   </small>
                 </span>
                 <small>
-                  {new Date(log.created_at).toLocaleString("ar-EG")}
+                  {new Date(log.created_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}
                 </small>
               </div>
             ))
           ) : (
-            <div className="empty-state">لا يوجد نشاط مسجل لهذا الخبر.</div>
+            <div className="empty-state">{lang === "ar" ? "لا يوجد نشاط مسجل لهذا الخبر." : "No recorded activity for this news item."}</div>
           )}
         </div>
       </div>
       {zoomImage && (
         <div className="modal-backdrop image-lightbox" onClick={() => setZoomImage(null)}>
-          <img src={zoomImage} alt="تكبير الصورة" onClick={(event) => event.stopPropagation()} />
+          <img src={zoomImage} alt={lang === "ar" ? "تكبير الصورة" : "Zoomed image"} onClick={(event) => event.stopPropagation()} />
         </div>
       )}
     </div>
@@ -1052,6 +1358,9 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
   const [range, setRange] = useState("day");
   const [keyword, setKeyword] = useState("");
   const [selected, setSelected] = useState<Post | null>(null);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [exporting, setExporting] = useState<"pdf" | "csv" | "json" | "xlsx" | null>(null);
+  const [exportError, setExportError] = useState("");
   const [now, setNow] = useState(0);
   const [filtered, setFiltered] = useState<Post[]>([]);
   const [feedPage, setFeedPage] = useState(1);
@@ -1066,9 +1375,13 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
     return () => window.clearTimeout(timer);
   }, []);
   useEffect(() => {
-    get<Post[]>("/api/data/posts/latest?limit=500", token)
-      .then(setPosts)
-      .catch(() => setPosts([]));
+    const load = () =>
+      get<Post[]>("/api/data/posts/latest?limit=500", token)
+        .then(setPosts)
+        .catch(() => setPosts([]));
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
   }, [token]);
   const durations: Record<string, number> = {
     hour: 3600000,
@@ -1090,29 +1403,64 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
               .includes(search),
         ),
       );
-      setFeedPage(1);
     }, 0);
     return () => window.clearTimeout(timer);
   }, [posts, now, range, keyword]);
+  // Only jump back to page 1 when the user changes a filter, not on every background refresh.
+  useEffect(() => {
+    setFeedPage(1);
+  }, [range, keyword]);
+  useEffect(() => {
+    setFeedPage((current) => Math.min(current, feedPageCount));
+  }, [feedPageCount]);
   const ranges = [
-    ["hour", "آخر ساعة"],
-    ["day", "اليوم"],
-    ["week", "الأسبوع"],
-    ["month", "الشهر"],
-    ["days90", "90 يوماً"],
-    ["year", "السنة"],
+    ["hour", lang === "ar" ? "آخر ساعة" : "Last hour"],
+    ["day", lang === "ar" ? "اليوم" : "Today"],
+    ["week", lang === "ar" ? "الأسبوع" : "This week"],
+    ["month", lang === "ar" ? "الشهر" : "This month"],
+    ["days90", lang === "ar" ? "90 يوماً" : "90 days"],
+    ["year", lang === "ar" ? "السنة" : "This year"],
   ];
+  const toggleChecked = (id: number) =>
+    setCheckedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const clearSelection = () => setCheckedIds(new Set());
+  const exportSelected = async (format: "pdf" | "csv" | "json" | "xlsx") => {
+    if (checkedIds.size === 0 || exporting) return;
+    setExporting(format);
+    setExportError("");
+    try {
+      const response = await fetch(`${API}/api/v1/posts/export/${format}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ post_ids: Array.from(checkedIds), lang }),
+      });
+      if (!response.ok) throw new ApiError(response.status);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `selected_posts_export.${format}`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تصدير السجلات المحددة." : "Unable to export the selected records."));
+    } finally {
+      setExporting(null);
+    }
+  };
   return (
     <div className="page-content">
       <div className="page-header">
         <div>
-          <p className="eyebrow">بيانات مباشرة</p>
+          <p className="eyebrow">{lang === "ar" ? "بيانات مباشرة" : "Live data"}</p>
           <h1>{lang === "ar" ? "موجز الاستخبارات" : "Intelligence feed"}</h1>
-          <p className="subhead">{filtered.length} خبر مطابق للفترة والكلمة.</p>
+          <p className="subhead">{lang === "ar" ? `${filtered.length} خبر مطابق للفترة والكلمة.` : `${filtered.length} items match the selected range and keyword.`}</p>
         </div>
-        <button className="primary-button">
-          <Plus size={16} /> {lang === "ar" ? "إضافة" : "Add"}
-        </button>
       </div>
       <div className="feed-filters">
         <label className="search-field">
@@ -1120,7 +1468,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
           <input
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
-            placeholder="فلترة بالكلمات المفتاحية"
+            placeholder={lang === "ar" ? "فلترة بالكلمات المفتاحية" : "Filter by keywords"}
           />
         </label>
         <select
@@ -1134,29 +1482,62 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
           ))}
         </select>
       </div>
+      {checkedIds.size > 0 && (
+        <div className="feed-export-toolbar">
+          <span>{lang === "ar" ? `${checkedIds.size} محدد` : `${checkedIds.size} selected`}</span>
+          <div className="feed-export-actions">
+            <button type="button" className="secondary-button" disabled={exporting !== null} onClick={() => void exportSelected("pdf")}>
+              {exporting === "pdf" ? <span className="loading-spinner" /> : <FileText size={14} />} PDF
+            </button>
+            <button type="button" className="secondary-button" disabled={exporting !== null} onClick={() => void exportSelected("csv")}>
+              {exporting === "csv" ? <span className="loading-spinner" /> : <FileText size={14} />} CSV
+            </button>
+            <button type="button" className="secondary-button" disabled={exporting !== null} onClick={() => void exportSelected("json")}>
+              {exporting === "json" ? <span className="loading-spinner" /> : <FileText size={14} />} JSON
+            </button>
+            <button type="button" className="secondary-button" disabled={exporting !== null} onClick={() => void exportSelected("xlsx")}>
+              {exporting === "xlsx" ? <span className="loading-spinner" /> : <FileText size={14} />} XLSX
+            </button>
+          </div>
+          <button type="button" className="text-button" onClick={clearSelection}>
+            {lang === "ar" ? "إلغاء التحديد" : "Clear selection"}
+          </button>
+        </div>
+      )}
+      {exportError && <div className="data-error">{exportError}</div>}
       <div className="feed-items">
         {visibleFeedPosts.map((post) => (
-          <button
-            className="feed-card"
-            key={post.id}
-            onClick={() => setSelected(post)}
-          >
-            <div className="feed-art art-cyan">
-              <span>{post.platform}</span>
-              <Globe2 size={30} />
-            </div>
-            <div className="feed-body">
-              <div className="feed-meta">
-                <span>{post.author}</span>
-                <span>{new Date(post.scraped_at).toLocaleString("ar-EG")}</span>
+          <div className={`feed-card ${checkedIds.has(post.id) ? "selected" : ""}`} key={post.id}>
+            <label className="feed-card-select" onClick={(event) => event.stopPropagation()}>
+              <input
+                type="checkbox"
+                checked={checkedIds.has(post.id)}
+                onChange={() => toggleChecked(post.id)}
+                aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"}
+              />
+            </label>
+            <button
+              type="button"
+              className="feed-card-open"
+              onClick={() => setSelected(post)}
+            >
+              <div className="feed-art art-cyan">
+                <span>{post.platform}</span>
+                <Globe2 size={30} />
               </div>
-              <h3>{post.title || post.content.slice(0, 120)}</h3>
-              <p>{post.content.slice(0, 240)}</p>
-              <span className="badge badge-neutral">
-                {post.severity_level || "غير محلل"}
-              </span>
-            </div>
-          </button>
+              <div className="feed-body">
+                <div className="feed-meta">
+                  <span>{post.author}</span>
+                  <span>{new Date(post.scraped_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</span>
+                </div>
+                <h3>{post.title || post.content.slice(0, 120)}</h3>
+                <p>{post.content.slice(0, 240)}</p>
+                <span className="badge badge-neutral">
+                  {post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}
+                </span>
+              </div>
+            </button>
+          </div>
         ))}
       </div>
       {filtered.length > 0 && (
@@ -1166,15 +1547,15 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
             disabled={feedPage === 1}
             onClick={() => setFeedPage((page) => page - 1)}
           >
-            السابق
+            {lang === "ar" ? "السابق" : "Previous"}
           </button>
-          <span>صفحة {feedPage} من {feedPageCount}</span>
+          <span>{lang === "ar" ? `صفحة ${feedPage} من ${feedPageCount}` : `Page ${feedPage} of ${feedPageCount}`}</span>
           <button
             className="secondary-button"
             disabled={feedPage === feedPageCount}
             onClick={() => setFeedPage((page) => page + 1)}
           >
-            التالي
+            {lang === "ar" ? "التالي" : "Next"}
           </button>
         </div>
       )}
@@ -1182,6 +1563,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
         <PostDetailDialog
           post={selected}
           token={token}
+          lang={lang}
           onClose={() => setSelected(null)}
         />
       )}
@@ -1415,6 +1797,7 @@ function ProposalsPanel({ token, lang }: { token: string; lang: Lang }) {
                   <option value="facebook">Facebook</option>
                   <option value="reddit">Reddit</option>
                   <option value="youtube">YouTube</option>
+                  <option value="x">X (Twitter)</option>
                 </select>
               </label>
               <label>
@@ -1893,22 +2276,24 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
   const [error, setError] = useState("");
   const platforms = [
     ["rss", "RSS"],
-    ["telegram", "تيليجرام"],
-    ["facebook", "فيسبوك"],
-    ["reddit", "ريديت"],
-    ["youtube", "يوتيوب"],
+    ["telegram", lang === "ar" ? "تيليجرام" : "Telegram"],
+    ["facebook", lang === "ar" ? "فيسبوك" : "Facebook"],
+    ["reddit", lang === "ar" ? "ريديت" : "Reddit"],
+    ["youtube", lang === "ar" ? "يوتيوب" : "YouTube"],
+    ["x", "X (Twitter)"],
   ] as const;
   const pageSize = 5;
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const visibleItems = items.slice((page - 1) * pageSize, page * pageSize);
   const load = (selectedTopicId = topicId) => {
-    if (!selectedTopicId) return;
-    void get<Item[]>(`/api/v1/topics/${selectedTopicId}/${tab}`, token)
+    if (tab !== "sources" && !selectedTopicId) return;
+    const path = tab === "sources" ? "/api/monitoring/sources" : `/api/v1/topics/${selectedTopicId}/keywords`;
+    void get<Item[]>(path, token)
       .then(setItems)
       .catch((cause) => {
         setItems([]);
         setError(
-          cause instanceof ApiError ? cause.message : "تعذر تحميل البيانات.",
+          cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر تحميل البيانات." : "Unable to load data."),
         );
       });
   };
@@ -1920,7 +2305,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
       })
       .catch((cause) =>
         setError(
-          cause instanceof ApiError ? cause.message : "تعذر تحميل المواضيع.",
+          cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر تحميل المواضيع." : "Unable to load topics."),
         ),
       );
   }, [token]);
@@ -1946,22 +2331,22 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     setFormOpen(true);
   };
   const remove = async (item: Item) => {
-    if (!topicId || !window.confirm("هل تريد حذف هذا السجل؟")) return;
+    if ((tab !== "sources" && !topicId) || !window.confirm(lang === "ar" ? "هل تريد حذف هذا السجل؟" : "Delete this record?")) return;
     try {
       await request<void>(
-        `/api/v1/topics/${topicId}/${tab}/${item.id}`,
+        tab === "sources" ? `/api/monitoring/sources/${item.id}` : `/api/v1/topics/${topicId}/keywords/${item.id}`,
         token,
         { method: "DELETE" },
       );
       if (visibleItems.length === 1 && page > 1) setPage(page - 1);
       load();
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "تعذر حذف السجل.");
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حذف السجل." : "Unable to delete the record."));
     }
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!topicId) return;
+    if (tab !== "sources" && !topicId) return;
     const body =
       tab === "sources"
         ? {
@@ -1976,10 +2361,10 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     try {
       await request<Item>(
         editingItem
-          ? `/api/v1/topics/${topicId}/${tab}/${editingItem.id}`
-          : `/api/v1/topics/${topicId}/${tab}`,
+          ? (tab === "sources" ? `/api/monitoring/sources/${editingItem.id}` : `/api/v1/topics/${topicId}/keywords/${editingItem.id}`)
+          : (tab === "sources" ? "/api/monitoring/sources" : `/api/v1/topics/${topicId}/keywords`),
         token,
-        { method: editingItem ? "PUT" : "POST", body: JSON.stringify(body) },
+        { method: editingItem ? (tab === "sources" ? "PATCH" : "PUT") : "POST", body: JSON.stringify(body) },
       );
       setName("");
       setPlatform("rss");
@@ -1989,24 +2374,24 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
       setFormOpen(false);
       load();
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : "تعذر حفظ السجل.");
+      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حفظ السجل." : "Unable to save the record."));
     }
   };
   return (
     <div className="page-content">
       <div className="page-header">
         <div>
-          <p className="eyebrow">إعدادات المراقبة</p>
-          <h1>إدارة الروابط والكلمات المفتاحية</h1>
-          <p className="subhead">إدارة العناصر التي تستخدمها عملية الجمع.</p>
+          <p className="eyebrow">{lang === "ar" ? "إعدادات المراقبة" : "Monitoring settings"}</p>
+          <h1>{lang === "ar" ? "إدارة الروابط والكلمات المفتاحية" : "Manage sources & keywords"}</h1>
+          <p className="subhead">{lang === "ar" ? "إدارة العناصر التي تستخدمها عملية الجمع." : "Manage the items used by the collection process."}</p>
         </div>
         <button className="primary-button" onClick={openCreate}>
-          <Plus size={16} /> إضافة جديدة
+          <Plus size={16} /> {lang === "ar" ? "إضافة جديدة" : "Add new"}
         </button>
       </div>
       {error && <div className="data-error">{error}</div>}
       <div className="config-tabs">
-        <select
+        {tab === "keywords" && <select
           value={topicId ?? ""}
           onChange={(event) => setTopicId(Number(event.target.value))}
           disabled={!topics.length}
@@ -2016,18 +2401,18 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
               {topic.title}
             </option>
           ))}
-        </select>
+        </select>}
         <button
           className={tab === "sources" ? "selected" : ""}
           onClick={() => setTab("sources")}
         >
-          الروابط والمصادر ({tab === "sources" ? items.length : "..."})
+          {lang === "ar" ? "الروابط والمصادر" : "Sources"} ({tab === "sources" ? items.length : "..."})
         </button>
         <button
           className={tab === "keywords" ? "selected" : ""}
           onClick={() => setTab("keywords")}
         >
-          الكلمات المفتاحية ({tab === "keywords" ? items.length : "..."})
+          {lang === "ar" ? "الكلمات المفتاحية" : "Keywords"} ({tab === "keywords" ? items.length : "..."})
         </button>
       </div>
       <div className="panel config-list">
@@ -2045,21 +2430,21 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
               </small>
             </span>
             <span className="badge badge-neutral">
-              {item.status ?? (item.is_active ? "نشط" : "متوقف")}
+              {item.status ?? (item.is_active ? (lang === "ar" ? "نشط" : "Active") : (lang === "ar" ? "متوقف" : "Disabled"))}
             </span>
             <span className="config-actions">
               <button
                 className="icon-button"
-                title="تعديل"
-                aria-label="تعديل"
+                title={lang === "ar" ? "تعديل" : "Edit"}
+                aria-label={lang === "ar" ? "تعديل" : "Edit"}
                 onClick={() => openEdit(item)}
               >
                 <Edit3 size={15} />
               </button>
               <button
                 className="icon-button danger-button"
-                title="حذف"
-                aria-label="حذف"
+                title={lang === "ar" ? "حذف" : "Delete"}
+                aria-label={lang === "ar" ? "حذف" : "Delete"}
                 onClick={() => remove(item)}
               >
                 <Trash2 size={15} />
@@ -2068,7 +2453,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
           </div>
         ))}
         {!items.length && (
-          <div className="empty-state">لا توجد عناصر مضافة بعد.</div>
+          <div className="empty-state">{lang === "ar" ? "لا توجد عناصر مضافة بعد." : "No items added yet."}</div>
         )}
       </div>
       {items.length > 0 && (
@@ -2078,17 +2463,17 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
             disabled={page === 1}
             onClick={() => setPage(page - 1)}
           >
-            السابق
+            {lang === "ar" ? "السابق" : "Previous"}
           </button>
           <span>
-            صفحة {page} من {pageCount}
+            {lang === "ar" ? `صفحة ${page} من ${pageCount}` : `Page ${page} of ${pageCount}`}
           </span>
           <button
             className="secondary-button"
             disabled={page === pageCount}
             onClick={() => setPage(page + 1)}
           >
-            التالي
+            {lang === "ar" ? "التالي" : "Next"}
           </button>
         </div>
       )}
@@ -2102,10 +2487,10 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
             <div className="modal-heading">
               <h2>
                 {editingItem
-                  ? "تعديل السجل"
+                  ? (lang === "ar" ? "تعديل السجل" : "Edit record")
                   : tab === "sources"
-                    ? "إضافة رابط مصدر"
-                    : "إضافة كلمة مفتاحية"}
+                    ? (lang === "ar" ? "إضافة رابط مصدر" : "Add source URL")
+                    : (lang === "ar" ? "إضافة كلمة مفتاحية" : "Add keyword")}
               </h2>
               <button
                 type="button"
@@ -2118,7 +2503,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
             {tab === "sources" && (
               <>
                 <label>
-                  اسم المصدر
+                  {lang === "ar" ? "اسم المصدر" : "Source name"}
                   <input
                     value={name}
                     onChange={(event) => setName(event.target.value)}
@@ -2126,7 +2511,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
                   />
                 </label>
                 <label>
-                  المنصة
+                  {lang === "ar" ? "المنصة" : "Platform"}
                   <select
                     value={platform}
                     onChange={(event) => setPlatform(event.target.value)}
@@ -2143,13 +2528,13 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
                   <input
                     value={actorId}
                     onChange={(event) => setActorId(event.target.value)}
-                    placeholder="اختياري"
+                    placeholder={lang === "ar" ? "اختياري" : "Optional"}
                   />
                 </label>
               </>
             )}
             <label>
-              {tab === "sources" ? "الرابط أو الحساب" : "الكلمة أو العبارة"}
+              {tab === "sources" ? (lang === "ar" ? "الرابط أو الحساب" : "URL or handle") : (lang === "ar" ? "الكلمة أو العبارة" : "Keyword or phrase")}
               <input
                 value={value}
                 onChange={(event) => setValue(event.target.value)}
@@ -2162,10 +2547,10 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
                 className="secondary-button"
                 onClick={() => setFormOpen(false)}
               >
-                إلغاء
+                {lang === "ar" ? "إلغاء" : "Cancel"}
               </button>
               <button type="submit" className="primary-button">
-                <Check size={15} /> حفظ
+                <Check size={15} /> {lang === "ar" ? "حفظ" : "Save"}
               </button>
             </div>
           </form>
@@ -2178,8 +2563,12 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-  const [templateText, setTemplateText] = useState("حلل المحتوى المرصود حول الموضوع المحدد، وحدد أهم الادعاءات والمخاطر ومستوى الأولوية، ثم قدم ملخصاً واضحاً باللغة العربية.");
-  const [name, setName] = useState("تحليل المحتوى");
+  const [templateText, setTemplateText] = useState(() =>
+    lang === "ar"
+      ? "حلل المحتوى المرصود حول الموضوع المحدد، وحدد أهم الادعاءات والمخاطر ومستوى الأولوية، ثم قدم ملخصاً واضحاً باللغة العربية."
+      : "Analyze the monitored content for the selected topic, identify the key claims, risks, and priority level, then provide a clear summary.",
+  );
+  const [name, setName] = useState(() => (lang === "ar" ? "تحليل المحتوى" : "Content analysis"));
   const [provider, setProvider] = useState("ollama");
   const [modelName, setModelName] = useState("qwen2.5:7b");
   const [availableModels, setAvailableModels] = useState<string[]>(["qwen2.5:7b", "llama3.1:8b", "mistral:7b"]);
@@ -2493,6 +2882,12 @@ export default function Home() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+  useEffect(() => {
+    // request() clears localStorage and fires this on a 401; sync React state so polling stops.
+    const onExpired = () => setToken("");
+    window.addEventListener("signaldesk-auth-expired", onExpired);
+    return () => window.removeEventListener("signaldesk-auth-expired", onExpired);
+  }, []);
   const onLogin = (nextToken: string, nextRole: Role) => {
     const normalized = ["admin", "topic_admin", "topic_monitor"].includes(nextRole) ? (nextRole === "admin" ? "super_admin" : nextRole === "topic_admin" ? "topic_manager" : "analyst") : nextRole;
     window.localStorage.setItem("signaldesk_token", nextToken);
@@ -2508,6 +2903,7 @@ export default function Home() {
   const toggle = () => {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
+    setApiLang(next);
     document.documentElement.lang = next;
     document.documentElement.dir = next === "ar" ? "rtl" : "ltr";
   };
@@ -2527,18 +2923,18 @@ export default function Home() {
   const t = labels[lang];
   const allowedNavIds: readonly string[] = isRestricted
     ? ["overview", "feed"]
-    : ["overview", "feed", "graph", "automation", "knowledge", "management", "audit", "prompts"];
+    : ["overview", "feed", "graph", "automation", "spider", "knowledge", "management", "audit", "prompts"];
   const navigationWithAdmin = [
     ...navigation[lang].filter(([id]) => allowedNavIds.includes(id)),
     ...(isRestricted ? ([["proposals", t.proposals, Plus]] as const) : []),
     ...(isManager ? ([["approvals", t.approvals, ShieldCheck]] as const) : []),
     ...(role === "super_admin"
       ? ([
-          ["topics", "إدارة المواضيع", Database],
-          ["users", "إدارة المستخدمين", Users],
+          ["topics", lang === "ar" ? "إدارة المواضيع" : "Topic management", Database],
+          ["users", lang === "ar" ? "إدارة المستخدمين" : "User management", Users],
         ] as const)
       : role === "topic_admin"
-        ? ([["topics", "إدارة المواضيع", Database]] as const)
+        ? ([["topics", lang === "ar" ? "إدارة المواضيع" : "Topic management", Database]] as const)
         : []),
   ];
   return (
@@ -2574,7 +2970,7 @@ export default function Home() {
           </button>
           <button className="nav-item">
             <Settings2 size={18} />
-            <span>إعدادات مساحة العمل</span>
+            <span>{lang === "ar" ? "إعدادات مساحة العمل" : "Workspace settings"}</span>
           </button>
           <button className="nav-item" onClick={signOut}>
             <LogOut size={18} />
@@ -2586,7 +2982,9 @@ export default function Home() {
         <header className="topbar">
           <div className="crumbs">
             {t[page] ??
-              (page === "topics" ? "إدارة المواضيع" : "إدارة المستخدمين")}
+              (page === "topics"
+                ? (lang === "ar" ? "إدارة المواضيع" : "Topic management")
+                : (lang === "ar" ? "إدارة المستخدمين" : "User management"))}
           </div>
           <div className="topbar-actions">
             <label className="global-search">
@@ -2623,14 +3021,16 @@ export default function Home() {
           <Monitoring token={token} lang={lang} />
         ) : page === "automation" ? (
           <AutomationMonitor token={token} role={role} lang={lang} />
+        ) : page === "spider" ? (
+          <SpiderMonitor token={token} lang={lang} />
         ) : page === "knowledge" ? (
           <KnowledgeBase token={token} lang={lang} />
         ) : page === "topics" ? (
-          <TopicManagement request={adminRequest} role={role} />
+          <TopicManagement request={adminRequest} role={role} lang={lang} />
         ) : page === "users" ? (
-          <UserManagement request={adminRequest} role={role} />
+          <UserManagement request={adminRequest} role={role} lang={lang} />
         ) : page === "audit" ? (
-          <AuditDashboard request={adminRequest} role={role} />
+          <AuditDashboard request={adminRequest} role={role} lang={lang} />
         ) : page === "approvals" && isManager ? (
           <ApprovalsPanel token={token} lang={lang} />
         ) : page === "proposals" && isRestricted ? (
@@ -2666,6 +3066,7 @@ const navigation = {
     ["feed", "موجز الاستخبارات", Radio],
     ["graph", "شبكة الانتشار و CIB", Share2],
     ["automation", "مراقبة الأتمتة", Activity],
+    ["spider", "متابعة السبايدر", SpiderIcon],
     ["knowledge", "قاعدة المعرفة", Database],
     ["management", "الروابط والكلمات المفتاحية", UserCog],
     ["audit", "سجلات التدقيق", ShieldCheck],
@@ -2676,6 +3077,7 @@ const navigation = {
     ["feed", "Intelligence feed", Radio],
     ["graph", "Propagation & CIB", Share2],
     ["automation", "Automation monitor", Activity],
+    ["spider", "Spider monitor", SpiderIcon],
     ["knowledge", "Knowledge base", Database],
     ["management", "Sources & keywords", UserCog],
     ["audit", "Audit logs", ShieldCheck],

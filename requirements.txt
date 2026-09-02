@@ -33,6 +33,9 @@ pillow>=9.0.0
 pytesseract>=0.3.10
 slowapi==0.1.10
 pyotp==2.10.0
-fastapi-mail==1.6.8
+fastapi-mail>=1.4.1,<1.5.0
 qrcode==8.2
 easyocr==1.7.2
+svglib>=1.5.1
+arabic-reshaper>=3.0.0
+python-bidi>=0.6.0

@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { Check, Edit3, Plus, Trash2, X } from "lucide-react";
 
 type Role = "super_admin" | "topic_admin" | "topic_monitor";
+type Lang = "ar" | "en";
 type Topic = { id: number; title: string };
 type User = {
   id: number;
@@ -25,9 +26,11 @@ const roleNames: Record<Role, string> = {
 export function UserManagement({
   request,
   role,
+  lang,
 }: {
   request: Request;
   role: Role;
+  lang: Lang;
 }) {
   const [users, setUsers] = useState<User[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -53,7 +56,7 @@ export function UserManagement({
       setTopics(nextTopics);
     } catch (cause) {
       setError(
-        cause instanceof Error ? cause.message : "تعذر تحميل المستخدمين.",
+        cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تحميل المستخدمين." : "Unable to load users."),
       );
     }
   };
@@ -88,16 +91,16 @@ export function UserManagement({
       setOpen(false);
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر حفظ المستخدم.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حفظ المستخدم." : "Unable to save the user."));
     }
   };
   const remove = async (user: User) => {
-    if (!window.confirm(`حذف المستخدم ${user.email}؟`)) return;
+    if (!window.confirm(lang === "ar" ? `حذف المستخدم ${user.email}؟` : `Delete user ${user.email}?`)) return;
     try {
       await request(`/api/users/${user.id}`, { method: "DELETE" });
       await load();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "تعذر حذف المستخدم.");
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حذف المستخدم." : "Unable to delete the user."));
     }
   };
   const openCreate = () => {
@@ -127,7 +130,7 @@ export function UserManagement({
   if (role !== "super_admin")
     return (
       <div className="page-content">
-        <div className="data-error">لا تملك صلاحية إدارة المستخدمين.</div>
+        <div className="data-error">{lang === "ar" ? "لا تملك صلاحية إدارة المستخدمين." : "You don't have permission to manage users."}</div>
       </div>
     );
   return (
@@ -135,20 +138,20 @@ export function UserManagement({
       <div className="page-header">
         <div className="user-page-title">
           <p className="eyebrow">RBAC</p>
-          <h1>إدارة المستخدمين</h1>
-          <p className="subhead">المستخدمون والأدوار والمواضيع المعيّنة.</p>
+          <h1>{lang === "ar" ? "إدارة المستخدمين" : "User management"}</h1>
+          <p className="subhead">{lang === "ar" ? "المستخدمون والأدوار والمواضيع المعيّنة." : "Users, roles, and assigned topics."}</p>
         </div>
         <button className="primary-button" onClick={openCreate}>
-          <Plus size={16} /> مستخدم جديد
+          <Plus size={16} /> {lang === "ar" ? "مستخدم جديد" : "New user"}
         </button>
       </div>
       {error && <div className="data-error">{error}</div>}
       <div className="panel user-table">
         <div className="table-head">
-          <span>المستخدم</span>
-          <span>الدور</span>
-          <span>المواضيع</span>
-          <span>الحالة</span>
+          <span>{lang === "ar" ? "المستخدم" : "User"}</span>
+          <span>{lang === "ar" ? "الدور" : "Role"}</span>
+          <span>{lang === "ar" ? "المواضيع" : "Topics"}</span>
+          <span>{lang === "ar" ? "الحالة" : "Status"}</span>
           <span />
         </div>
         {users.map((user) => (
@@ -167,24 +170,24 @@ export function UserManagement({
                   (id) =>
                     topics.find((topic) => topic.id === id)?.title ?? `#${id}`,
                 )
-                .join("، ") || "عالمي"}
+                .join(lang === "ar" ? "، " : ", ") || (lang === "ar" ? "عالمي" : "Global")}
             </span>
             <span className="badge badge-neutral">
-              {user.is_active ? "نشط" : "متوقف"}
+              {user.is_active ? (lang === "ar" ? "نشط" : "Active") : (lang === "ar" ? "متوقف" : "Disabled")}
             </span>
             <span className="config-actions user-actions">
               <button
                 className="icon-button"
-                title="تعديل المستخدم"
-                aria-label="تعديل المستخدم"
+                title={lang === "ar" ? "تعديل المستخدم" : "Edit user"}
+                aria-label={lang === "ar" ? "تعديل المستخدم" : "Edit user"}
                 onClick={() => openEdit(user)}
               >
                 <Edit3 size={15} />
               </button>
               <button
                 className="icon-button danger-button"
-                title="حذف المستخدم"
-                aria-label="حذف المستخدم"
+                title={lang === "ar" ? "حذف المستخدم" : "Delete user"}
+                aria-label={lang === "ar" ? "حذف المستخدم" : "Delete user"}
                 onClick={() => remove(user)}
               >
                 <Trash2 size={15} />
@@ -201,7 +204,7 @@ export function UserManagement({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="modal-heading">
-              <h2>{editing ? "تعديل المستخدم" : "إنشاء مستخدم"}</h2>
+              <h2>{editing ? (lang === "ar" ? "تعديل المستخدم" : "Edit user") : (lang === "ar" ? "إنشاء مستخدم" : "Create user")}</h2>
               <button
                 type="button"
                 className="icon-button"
@@ -213,7 +216,7 @@ export function UserManagement({
             {!editing && (
               <>
                 <label>
-                  البريد الإلكتروني
+                  {lang === "ar" ? "البريد الإلكتروني" : "Email"}
                   <input
                     type="email"
                     value={form.email}
@@ -224,7 +227,7 @@ export function UserManagement({
                   />
                 </label>
                 <label>
-                  كلمة المرور
+                  {lang === "ar" ? "كلمة المرور" : "Password"}
                   <input
                     type="password"
                     value={form.password}
@@ -237,7 +240,7 @@ export function UserManagement({
               </>
             )}
             <label>
-              الاسم
+              {lang === "ar" ? "الاسم" : "Name"}
               <input
                 value={form.full_name}
                 onChange={(event) =>
@@ -247,7 +250,7 @@ export function UserManagement({
               />
             </label>
             <label>
-              الدور
+              {lang === "ar" ? "الدور" : "Role"}
               <select
                 value={form.role}
                 onChange={(event) =>
@@ -263,7 +266,7 @@ export function UserManagement({
             </label>
             {form.role !== "super_admin" && (
               <label>
-                الموضوع
+                {lang === "ar" ? "الموضوع" : "Topic"}
                 <select
                   value={form.topicId}
                   onChange={(event) =>
@@ -271,7 +274,7 @@ export function UserManagement({
                   }
                   required
                 >
-                  <option value="">اختر موضوعاً</option>
+                  <option value="">{lang === "ar" ? "اختر موضوعاً" : "Choose a topic"}</option>
                   {topics.map((topic) => (
                     <option value={topic.id} key={topic.id}>
                       {topic.title}
@@ -286,10 +289,10 @@ export function UserManagement({
                 className="secondary-button"
                 onClick={() => setOpen(false)}
               >
-                إلغاء
+                {lang === "ar" ? "إلغاء" : "Cancel"}
               </button>
               <button className="primary-button" type="submit">
-                <Check size={15} /> حفظ
+                <Check size={15} /> {lang === "ar" ? "حفظ" : "Save"}
               </button>
             </div>
           </form>
