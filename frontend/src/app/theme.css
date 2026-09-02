@@ -88,6 +88,9 @@
 .image-lightbox img { max-width: 90vw; max-height: 90vh; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,.4); }
 .quick-ingest-checkbox { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
 .quick-ingest-checkbox input { width: auto; margin: 0; }
+.activity-row-button { color: inherit; font: inherit; text-align: right; cursor: pointer; }
+.activity-row-button:hover { background: #f1fbfa; }
+.theme-dark .activity-row-button:hover { background: #1b383b; }
 .feed-filters { grid-template-columns: minmax(0, 1fr) 180px auto; }
 .view-toggle { align-self: stretch; justify-self: end; display: inline-flex; align-items: center; }
 .view-toggle button { min-width: 36px; min-height: 36px; display: grid; place-items: center; }

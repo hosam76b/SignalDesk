@@ -803,6 +803,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
   const [aiStatus, setAiStatus] = useState<AiStatus | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
+  const [selected, setSelected] = useState<Post | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [spiderStatus, setSpiderStatus] = useState<SpiderActiveStatus | null>(null);
   const [activityPage, setActivityPage] = useState(1);
@@ -826,7 +827,11 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
       ])
         .then(([s, p, ai, nextTopics]) => {
           setStats(s);
-          setPosts(p);
+          const uniquePosts = p.filter((post, index, records) => {
+            const identity = `${post.platform}|${post.author}|${post.post_url || post.content.trim()}`;
+            return records.findIndex((candidate) => `${candidate.platform}|${candidate.author}|${candidate.post_url || candidate.content.trim()}` === identity) === index;
+          });
+          setPosts(uniquePosts);
           setAiStatus(ai);
           setTopics(nextTopics);
           setSelectedTopicId((current) => current ?? nextTopics[0]?.id ?? null);
@@ -1077,7 +1082,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
           </div>
         </div>
         {visiblePosts.map((post) => (
-          <div className="activity-row" key={post.id}>
+          <button type="button" className="activity-row activity-row-button" key={post.id} onClick={() => setSelected(post)}>
             <span className="source-mark source-cyan">
               {post.platform[0]?.toUpperCase()}
             </span>
@@ -1093,7 +1098,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
             <span className="badge badge-neutral">
               {post.severity_level || (language === "ar" ? "غير محلل" : "Unanalyzed")}
             </span>
-          </div>
+          </button>
         ))}
         {posts.length > 0 && (
           <div className="pagination">
@@ -1117,6 +1122,14 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
           </div>
         )}
       </div>
+      {selected && (
+        <PostDetailDialog
+          post={selected}
+          token={token}
+          lang={language}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   );
 }
