@@ -227,6 +227,7 @@ class ScraperOrchestrator:
         """
         saved_count = 0
         new_posts: list[Post] = []
+        seen_keys: set[tuple[str, str]] = set()
 
         for post_data in posts:
             try:
@@ -238,6 +239,15 @@ class ScraperOrchestrator:
                     f"{content}|{post_data.get('author', 'Unknown')}|{post_url}".encode("utf-8")
                 ).hexdigest()
 
+                candidate_keys = {
+                    ("external_id", external_id),
+                    ("post_url", post_url),
+                    ("fingerprint", fingerprint),
+                }
+                if any(value and key in seen_keys for key, value in candidate_keys):
+                    logger.debug("Skipping duplicate post within scrape batch: %s", external_id)
+                    continue
+
                 if external_id or post_url or fingerprint:
                     existing = db.query(Post).filter(
                         Post.source_id == source.id,
@@ -248,6 +258,8 @@ class ScraperOrchestrator:
                     if existing:
                         logger.debug(f"Skipping duplicate post: {external_id}")
                         continue
+
+                seen_keys.update((key, value) for key, value in candidate_keys if value)
 
                 # Create new Post object
                 new_post = Post(

@@ -95,7 +95,28 @@ def latest_posts(
     if since is not None:
         query = query.filter(Post.scraped_at > since)
     posts = query.order_by(Post.scraped_at.desc(), Post.id.desc()).limit(limit).all()
-    return [PostExport.from_post(post) for post in posts]
+    unique_posts: list[Post] = []
+    seen_external_ids: set[str] = set()
+    seen_urls: set[str] = set()
+    seen_fingerprints: set[str] = set()
+    for post in posts:
+        external_id = (post.external_id or "").strip()
+        post_url = (post.post_url or "").strip()
+        fingerprint = (post.content_fingerprint or "").strip()
+        if (
+            (external_id and external_id in seen_external_ids)
+            or (post_url and post_url in seen_urls)
+            or (fingerprint and fingerprint in seen_fingerprints)
+        ):
+            continue
+        unique_posts.append(post)
+        if external_id:
+            seen_external_ids.add(external_id)
+        if post_url:
+            seen_urls.add(post_url)
+        if fingerprint:
+            seen_fingerprints.add(fingerprint)
+    return [PostExport.from_post(post) for post in unique_posts]
 
 
 @router.get("/data/posts/stream", response_model=list[PostExport], include_in_schema=False)
