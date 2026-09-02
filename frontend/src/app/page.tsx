@@ -15,6 +15,8 @@ import {
   FileText,
   Globe2,
   LayoutDashboard,
+  LayoutGrid,
+  List,
   LogOut,
   Menu,
   PanelLeftClose,
@@ -192,9 +194,19 @@ let currentApiLang: Lang = "ar";
 function setApiLang(next: Lang) {
   currentApiLang = next;
 }
+function getApiErrorDetail(body: unknown): string | undefined {
+  if (!body || typeof body !== "object" || !("detail" in body)) return undefined;
+  const detail = body.detail;
+  if (typeof detail === "string") return detail;
+  if (!Array.isArray(detail)) return undefined;
+  const firstError = detail[0];
+  if (!firstError || typeof firstError !== "object" || !("msg" in firstError) || typeof firstError.msg !== "string") return undefined;
+  const location = "loc" in firstError && Array.isArray(firstError.loc) ? firstError.loc.at(-1) : undefined;
+  return location ? `${String(location)}: ${firstError.msg}` : firstError.msg;
+}
 class ApiError extends Error {
   status: number;
-  constructor(status: number) {
+  constructor(status: number, detail?: string) {
     const messages =
       currentApiLang === "ar"
         ? {
@@ -209,15 +221,15 @@ class ApiError extends Error {
             422: "Check the submitted data.",
             default: "Unable to complete the request.",
           };
-    super(
+    super(detail || (
       status === 401
         ? messages[401]
         : status === 403
           ? messages[403]
           : status === 422
             ? messages[422]
-            : messages.default,
-    );
+            : messages.default
+    ));
     this.status = status;
   }
 }
@@ -241,7 +253,10 @@ async function request<T>(
     window.dispatchEvent(new Event("signaldesk-auth-expired"));
   }
   if (response.status === 204) return undefined as T;
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(response.status, getApiErrorDetail(body));
+  }
   return response.json();
 }
 async function get<T>(path: string, token: string): Promise<T> {
@@ -1363,8 +1378,9 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
   const [exportError, setExportError] = useState("");
   const [now, setNow] = useState(0);
   const [filtered, setFiltered] = useState<Post[]>([]);
+  const [viewMode, setViewMode] = useState<"table" | "kanban">("table");
   const [feedPage, setFeedPage] = useState(1);
-  const feedPageSize = 5;
+  const feedPageSize = 6;
   const feedPageCount = Math.max(1, Math.ceil(filtered.length / feedPageSize));
   const visibleFeedPosts = filtered.slice(
     (feedPage - 1) * feedPageSize,
@@ -1481,6 +1497,26 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
             </option>
           ))}
         </select>
+        <div className="view-toggle" aria-label={lang === "ar" ? "طريقة عرض الأخبار" : "News view mode"}>
+          <button
+            type="button"
+            className={viewMode === "table" ? "selected" : ""}
+            onClick={() => setViewMode("table")}
+            aria-label={lang === "ar" ? "عرض جدولي" : "Table view"}
+            title={lang === "ar" ? "عرض جدولي" : "Table view"}
+          >
+            <List size={16} />
+          </button>
+          <button
+            type="button"
+            className={viewMode === "kanban" ? "selected" : ""}
+            onClick={() => setViewMode("kanban")}
+            aria-label={lang === "ar" ? "عرض كانبان" : "Kanban view"}
+            title={lang === "ar" ? "عرض كانبان" : "Kanban view"}
+          >
+            <LayoutGrid size={16} />
+          </button>
+        </div>
       </div>
       {checkedIds.size > 0 && (
         <div className="feed-export-toolbar">
@@ -1505,41 +1541,49 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
         </div>
       )}
       {exportError && <div className="data-error">{exportError}</div>}
-      <div className="feed-items">
-        {visibleFeedPosts.map((post) => (
-          <div className={`feed-card ${checkedIds.has(post.id) ? "selected" : ""}`} key={post.id}>
-            <label className="feed-card-select" onClick={(event) => event.stopPropagation()}>
-              <input
-                type="checkbox"
-                checked={checkedIds.has(post.id)}
-                onChange={() => toggleChecked(post.id)}
-                aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"}
-              />
-            </label>
-            <button
-              type="button"
-              className="feed-card-open"
-              onClick={() => setSelected(post)}
-            >
-              <div className="feed-art art-cyan">
-                <span>{post.platform}</span>
-                <Globe2 size={30} />
-              </div>
-              <div className="feed-body">
-                <div className="feed-meta">
-                  <span>{post.author}</span>
-                  <span>{new Date(post.scraped_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</span>
-                </div>
-                <h3>{post.title || post.content.slice(0, 120)}</h3>
-                <p>{post.content.slice(0, 240)}</p>
-                <span className="badge badge-neutral">
-                  {post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}
-                </span>
-              </div>
-            </button>
-          </div>
-        ))}
-      </div>
+      {viewMode === "table" ? (
+        <div className="feed-table-wrap">
+          <table className="feed-table">
+            <thead>
+              <tr>
+                <th>{lang === "ar" ? "تحديد" : "Select"}</th>
+                <th>{lang === "ar" ? "المنصة" : "Platform"}</th>
+                <th>{lang === "ar" ? "الخبر" : "News"}</th>
+                <th>{lang === "ar" ? "الكاتب" : "Author"}</th>
+                <th>{lang === "ar" ? "الخطورة" : "Severity"}</th>
+                <th>{lang === "ar" ? "التاريخ" : "Date"}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleFeedPosts.map((post) => (
+                <tr key={post.id} className={checkedIds.has(post.id) ? "selected" : ""} onClick={() => setSelected(post)}>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    <input type="checkbox" checked={checkedIds.has(post.id)} onChange={() => toggleChecked(post.id)} aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"} />
+                  </td>
+                  <td><span className="table-platform"><Globe2 size={14} />{post.platform}</span></td>
+                  <td><strong>{post.title || post.content.slice(0, 120)}</strong><small>{post.content.slice(0, 150)}</small></td>
+                  <td>{post.author}</td>
+                  <td><span className={`badge badge-${post.severity_level || "neutral"}`}>{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span></td>
+                  <td>{new Date(post.scraped_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="kanban-board">
+          {visibleFeedPosts.map((post) => {
+            const severity = (post.severity_level || "unanalyzed").toLowerCase();
+            return (
+              <article className={`kanban-card severity-${severity} ${checkedIds.has(post.id) ? "selected" : ""}`} key={post.id}>
+                <div className="kanban-card-top"><span>{post.platform}</span><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={checkedIds.has(post.id)} onChange={() => toggleChecked(post.id)} aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"} /></label></div>
+                <button type="button" onClick={() => setSelected(post)}><strong>{post.title || post.content.slice(0, 100)}</strong><p>{post.content.slice(0, 180)}</p></button>
+                <div className="kanban-card-footer"><small>{post.author} · {new Date(post.scraped_at).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US")}</small><span className="severity-label">{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span></div>
+              </article>
+            );
+          })}
+        </div>
+      )}
       {filtered.length > 0 && (
         <div className="pagination">
           <button
@@ -2274,6 +2318,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicId, setTopicId] = useState<number | null>(null);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const platforms = [
     ["rss", "RSS"],
     ["telegram", lang === "ar" ? "تيليجرام" : "Telegram"],
@@ -2286,8 +2331,8 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const visibleItems = items.slice((page - 1) * pageSize, page * pageSize);
   const load = (selectedTopicId = topicId) => {
-    if (tab !== "sources" && !selectedTopicId) return;
-    const path = tab === "sources" ? "/api/monitoring/sources" : `/api/v1/topics/${selectedTopicId}/keywords`;
+    if (!selectedTopicId) return;
+    const path = `/api/v1/topics/${selectedTopicId}/${tab}`;
     void get<Item[]>(path, token)
       .then(setItems)
       .catch((cause) => {
@@ -2319,6 +2364,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     setValue("");
     setActorId("");
     setError("");
+    setNotice("");
     setFormOpen(true);
   };
   const openEdit = (item: Item) => {
@@ -2328,25 +2374,28 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     setValue(item.url_or_handle ?? item.word_or_phrase ?? "");
     setActorId(item.apify_actor_id ?? "");
     setError("");
+    setNotice("");
     setFormOpen(true);
   };
   const remove = async (item: Item) => {
-    if ((tab !== "sources" && !topicId) || !window.confirm(lang === "ar" ? "هل تريد حذف هذا السجل؟" : "Delete this record?")) return;
+    if (!topicId || !window.confirm(lang === "ar" ? "هل تريد حذف هذا السجل؟" : "Delete this record?")) return;
     try {
       await request<void>(
-        tab === "sources" ? `/api/monitoring/sources/${item.id}` : `/api/v1/topics/${topicId}/keywords/${item.id}`,
+        `/api/v1/topics/${topicId}/${tab}/${item.id}`,
         token,
         { method: "DELETE" },
       );
       if (visibleItems.length === 1 && page > 1) setPage(page - 1);
       load();
+      setNotice(lang === "ar" ? "تم حذف السجل." : "Record deleted.");
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حذف السجل." : "Unable to delete the record."));
+      setNotice("");
+      setError(cause instanceof ApiError && cause.status === 409 ? (lang === "ar" ? "الرابط أو الحساب مضاف بالفعل." : "This URL or handle already exists.") : cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حذف السجل." : "Unable to delete the record."));
     }
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (tab !== "sources" && !topicId) return;
+    if (!topicId) return;
     const body =
       tab === "sources"
         ? {
@@ -2361,10 +2410,10 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     try {
       await request<Item>(
         editingItem
-          ? (tab === "sources" ? `/api/monitoring/sources/${editingItem.id}` : `/api/v1/topics/${topicId}/keywords/${editingItem.id}`)
-          : (tab === "sources" ? "/api/monitoring/sources" : `/api/v1/topics/${topicId}/keywords`),
+          ? `/api/v1/topics/${topicId}/${tab}/${editingItem.id}`
+          : `/api/v1/topics/${topicId}/${tab}`,
         token,
-        { method: editingItem ? (tab === "sources" ? "PATCH" : "PUT") : "POST", body: JSON.stringify(body) },
+        { method: editingItem ? "PUT" : "POST", body: JSON.stringify(body) },
       );
       setName("");
       setPlatform("rss");
@@ -2373,8 +2422,10 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
       setEditingItem(null);
       setFormOpen(false);
       load();
+      setNotice(editingItem ? (lang === "ar" ? "تم تحديث السجل بنجاح." : "Record updated successfully.") : (lang === "ar" ? "تم حفظ الرابط بنجاح." : "Source saved successfully."));
     } catch (cause) {
-      setError(cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حفظ السجل." : "Unable to save the record."));
+      setNotice("");
+      setError(cause instanceof ApiError && cause.status === 409 ? (lang === "ar" ? "الرابط أو الحساب مضاف بالفعل، ولم يتم حفظه مرة أخرى." : "This URL or handle already exists and was not saved again.") : cause instanceof ApiError ? cause.message : (lang === "ar" ? "تعذر حفظ السجل." : "Unable to save the record."));
     }
   };
   return (
@@ -2390,8 +2441,9 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
         </button>
       </div>
       {error && <div className="data-error">{error}</div>}
+      {notice && <div className="connection-message">{notice}</div>}
       <div className="config-tabs">
-        {tab === "keywords" && <select
+        <select
           value={topicId ?? ""}
           onChange={(event) => setTopicId(Number(event.target.value))}
           disabled={!topics.length}
@@ -2401,7 +2453,7 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
               {topic.title}
             </option>
           ))}
-        </select>}
+        </select>
         <button
           className={tab === "sources" ? "selected" : ""}
           onClick={() => setTab("sources")}
@@ -2933,7 +2985,7 @@ export default function Home() {
           ["topics", lang === "ar" ? "إدارة المواضيع" : "Topic management", Database],
           ["users", lang === "ar" ? "إدارة المستخدمين" : "User management", Users],
         ] as const)
-      : role === "topic_admin"
+      : role === "topic_admin" || role === "topic_manager"
         ? ([["topics", lang === "ar" ? "إدارة المواضيع" : "Topic management", Database]] as const)
         : []),
   ];

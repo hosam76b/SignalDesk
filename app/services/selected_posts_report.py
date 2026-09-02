@@ -6,6 +6,7 @@ import csv
 import io
 import json
 from datetime import datetime, timezone
+from xml.sax.saxutils import escape
 from typing import Any
 
 from reportlab.lib import colors
@@ -23,8 +24,8 @@ LABELS = {
         "generated": "تاريخ الإنشاء",
         "analyst": "المحلل",
         "count": "عدد الأخبار المحددة",
-        "headers": ["#", "المنصة", "الكاتب", "الخطورة", "التاريخ", "الملخص/المحتوى"],
-        "no_summary": "لا يوجد ملخص",
+        "headers": ["#", "المنصة", "الكاتب", "الخطورة", "التاريخ", "المحتوى"],
+        "no_content": "لا يوجد محتوى",
         "footer": "SignalDesk — منصة المراقبة والاستخبارات الرقمية",
         "unanalyzed": "غير محلل",
         "page": "صفحة",
@@ -34,8 +35,8 @@ LABELS = {
         "generated": "Generated",
         "analyst": "Analyst",
         "count": "Selected items",
-        "headers": ["#", "Platform", "Author", "Severity", "Date", "Summary/Content"],
-        "no_summary": "No summary",
+        "headers": ["#", "Platform", "Author", "Severity", "Date", "Content"],
+        "no_content": "No content",
         "footer": "SignalDesk \u2014 Threat Intelligence & Media Monitoring Platform",
         "unanalyzed": "Unanalyzed",
         "page": "Page",
@@ -80,7 +81,7 @@ def generate_selected_posts_pdf(posts: list[Post], lang: str, requester_name: st
 
     rows: list[list[Any]] = [[Paragraph(f"<b>{t(header)}</b>", bold_style) for header in labels["headers"]]]
     for index, post in enumerate(posts, start=1):
-        summary = post.ai_summary or (post.content[:220] if post.content else "") or labels["no_summary"]
+        content = post.content or post.ai_summary or labels["no_content"]
         date_str = post.published_at.strftime("%Y-%m-%d %H:%M") if post.published_at else "-"
         severity = post.severity_level or labels["unanalyzed"]
         rows.append([
@@ -89,7 +90,7 @@ def generate_selected_posts_pdf(posts: list[Post], lang: str, requester_name: st
             Paragraph(t(post.author or "-"), body_style),
             Paragraph(t(severity), body_style),
             Paragraph(date_str, body_style),
-            Paragraph(t(summary), body_style),
+            Paragraph(t(escape(content)), body_style),
         ])
 
     table = Table(rows, colWidths=_PDF_COL_WIDTHS, repeatRows=1)
