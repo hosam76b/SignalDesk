@@ -13,6 +13,7 @@ from app.services.ai_service import analyze_post_content
 from app.services.knowledge_context import get_topic_knowledge_context
 from app.services.media_processor import build_combined_text
 from app.services.sentiment import analyze_sentiment
+from app.services.webhook_service import WEBHOOK_EVENT_ANALYSIS_COMPLETED, dispatch_event_blocking
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,17 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
             result["success"] = False
             result["errors"].append({"error": f"Database commit failed: {exc}"})
             result["updated"] = 0
+
+    if result["updated"]:
+        try:
+            dispatch_event_blocking(db, WEBHOOK_EVENT_ANALYSIS_COMPLETED, {
+                "processed": result["processed"],
+                "analyzed": result["analyzed"],
+                "failed": result["failed"],
+                "duration_seconds": result["duration_seconds"],
+            })
+        except Exception:
+            logger.exception("analysis_completed webhook dispatch failed")
 
     result["duration_seconds"] = (datetime.now(timezone.utc) - started_at).total_seconds()
     return result

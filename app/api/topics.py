@@ -5,10 +5,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_admin_user, get_current_topic_admin, get_current_topic_user, get_current_user
@@ -19,6 +20,7 @@ from app.services.audit_service import record_audit
 from app.services.pdf_report_service import generate_topic_executive_pdf
 from app.services.propagation_service import analyze_topic_propagation_graph
 from app.services.scraper_service import SUPPORTED_PLATFORMS
+from app.services.webhook_service import WEBHOOK_EVENT_REPORT_READY, dispatch_event_background
 
 router = APIRouter(prefix="/api/v1/topics", tags=["Topics"])
 
@@ -52,7 +54,7 @@ class TopicMemberOutput(BaseModel):
 
 
 class SourceInput(BaseModel):
-    platform: str = Field(min_length=2, max_length=50)
+    platform: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=255)
     url_or_handle: str = Field(min_length=1, max_length=500)
     target_type: str = Field(default="url", max_length=30)
@@ -275,7 +277,16 @@ def create_source(topic_id: int, source: SourceInput, db: Session = Depends(get_
         **source.model_dump(),
     )
     db.add(record)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if "monitored_sources.topic_id" in str(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database migration required before adding global sources. Run alembic stamp 0005_media_processing, then alembic upgrade head.",
+            ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists") from exc
     db.refresh(record)
     return record
 
@@ -523,6 +534,7 @@ def topic_stats(topic_id: int, db: Session = Depends(get_db), _: User = Depends(
 @router.get("/{topic_id}/report.pdf", include_in_schema=False)
 def export_topic_pdf_report(
     topic_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_topic_user),
 ):
@@ -539,6 +551,11 @@ def export_topic_pdf_report(
             details={"filename": filename},
         )
         db.commit()
+        background_tasks.add_task(
+            dispatch_event_background,
+            WEBHOOK_EVENT_REPORT_READY,
+            {"topic_id": topic_id, "filename": filename, "requested_by": current_user.email},
+        )
         return Response(
             content=pdf_bytes,
             media_type="application/pdf",

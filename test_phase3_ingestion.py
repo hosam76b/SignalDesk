@@ -25,7 +25,7 @@ def test_targeted_ingestion_scopes_sources_keywords_and_posts(db, seeded_db, mon
             "published_at": datetime.now(timezone.utc),
         }]
 
-    async def fake_dispatch(_payload):
+    async def fake_dispatch(_payload, **_kwargs):
         return {"delivered": False, "error": "Webhook URL is not configured"}
 
     monkeypatch.setattr(orchestrator, "_scrape_source", fake_scrape)
@@ -61,7 +61,7 @@ def test_ingestion_without_keywords_keeps_all_source_posts(db, seeded_db, monkey
     monkeypatch.setattr(orchestrator, "_scrape_source", fake_scrape)
     monkeypatch.setattr(
         "app.services.scraper_orchestrator.dispatch_post_ingested",
-        lambda _payload: asyncio.sleep(0, result={"delivered": False, "error": "Webhook URL is not configured"}),
+        lambda _payload, **_kwargs: asyncio.sleep(0, result={"delivered": False, "error": "Webhook URL is not configured"}),
     )
 
     result = asyncio.run(orchestrator.run_scraping_cycle(db, topic_id=seeded_db["topic_a"].id))

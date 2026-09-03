@@ -11,7 +11,7 @@ from app.services.playwright_service import PlaywrightService
 from app.services.reddit_service import RedditService
 from app.services.rss_service import RSSService
 from app.services.scraper_service import ScraperService
-from app.services.webhook_service import build_n8n_post_payload, dispatch_post_ingested, _format_webhook_error
+from app.services.webhook_service import build_n8n_post_payload, dispatch_post_ingested, _format_response_error
 from app.models import Post, Topic
 
 
@@ -104,8 +104,8 @@ def test_webhook_error_includes_n8n_hint():
         },
     )
 
-    error = _format_webhook_error(response)
+    error = _format_response_error(response, "https://n8n.example.com/webhook-test/abc")
 
-    assert "n8n webhook returned 404" in error
+    assert "Webhook endpoint returned 404" in error
     assert "The requested webhook is not registered." in error
     assert "The workflow must be active" in error

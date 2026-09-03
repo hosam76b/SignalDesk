@@ -129,7 +129,7 @@ class ScraperOrchestrator:
                                 "source_id": source.id, "source_name": source.name,
                                 "platform": source.platform, "posts": topic_posts,
                                 "ingested_at": datetime.now(timezone.utc).isoformat(),
-                            })
+                            }, db=db)
                             if not webhook_result.get("delivered") and webhook_result.get("error") != "Webhook URL is not configured":
                                 stats["errors"].append(webhook_result["error"])
 

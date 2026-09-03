@@ -144,3 +144,64 @@ venv\Scripts\python.exe -c "from main import app; print(app.docs_url, app.redoc_
 ```powershell
 venv\Scripts\python.exe export_openapi.py --output openapi.json
 ```
+
+## التكامل عبر الويب هوك (n8n وغيره)
+
+يتيح SignalDesk إرسال الأحداث إلى أنظمة الأتمتة الخارجية مثل n8n عبر ويب هوكات متعددة تُدار من قاعدة البيانات.
+جميع مسارات الإدارة تتطلب صلاحية المسؤول الأعلى (`super_admin`)، ويمكن التحكم بها أيضاً من واجهة الإعدادات: «إعدادات مساحة العمل» ← «إعدادات الويب هوك».
+
+### مسارات إدارة الويب هوك
+
+| المسار | الوظيفة |
+| --- | --- |
+| `GET /api/webhooks/events` | قائمة الأحداث المدعومة. |
+| `GET /api/webhooks` | عرض كل الاشتراكات مع حالة آخر إرسال. |
+| `POST /api/webhooks` | إنشاء اشتراك جديد (`name`, `url`, `secret`, `events`, `is_active`). |
+| `GET /api/webhooks/{id}` | تفاصيل اشتراك واحد. |
+| `PATCH /api/webhooks/{id}` | تعديل اشتراك (السر يبقى كما هو ما لم يُرسل). |
+| `DELETE /api/webhooks/{id}` | حذف اشتراك مع سجل إرسالاته. |
+| `POST /api/webhooks/{id}/test` | إرسال حدث تجريبي موقّع للتحقق من الاتصال. |
+| `GET /api/webhooks/{id}/deliveries` | سجل محاولات الإرسال (الحالة، رمز HTTP، الخطأ، المدة). |
+| `POST /api/webhooks/post-ingested` | إرسال دفعة منشورات يدوياً (أي مستخدم مسجّل). |
+
+### الأحداث المدعومة
+
+| الحدث | متى يُرسَل |
+| --- | --- |
+| `post_ingested` | عند استيعاب منشورات جديدة من المصادر. |
+| `alert_triggered` | عند رصد تنبيه جديد عالي/حرج لموضوع. |
+| `report_ready` | عند توليد تقرير PDF تنفيذي. |
+| `analysis_completed` | عند انتهاء دفعة تحليل الذكاء الاصطناعي. |
+
+### شكل الحمولة والتوقيع
+
+كل إرسال هو `POST` بصيغة JSON بالشكل:
+
+```json
+{
+  "event": "post_ingested",
+  "sent_at": "2026-09-03T12:00:00+00:00",
+  "data": { "..." : "..." }
+}
+```
+
+الترويسات المرسَلة:
+
+```text
+X-Webhook-Event: post_ingested
+X-Webhook-Delivery: <معرّف فريد لكل محاولة>
+X-Webhook-Signature: sha256=<HMAC-SHA256 للجسم الخام بالسر المشترك>
+```
+
+عند ضبط `secret` للاشتراك، تحقق في n8n من التوقيع بمقارنة `X-Webhook-Signature` مع HMAC-SHA256 المحسوب على جسم الطلب الخام.
+
+### مثال: إنشاء ويب هوك لـ n8n
+
+```powershell
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/api/webhooks" `
+  -Method Post -Headers @{ Authorization = "Bearer $token" } `
+  -ContentType "application/json" `
+  -Body '{"name":"n8n workflow","url":"https://n8n.example.com/webhook/abc","secret":"shared-secret","events":["post_ingested","alert_triggered"]}'
+```
+
+> ملاحظة توافقية: المتغير `POST_INGESTED_WEBHOOK_URL` في `.env` ما زال يعمل كقناة إرسال إضافية لحدث `post_ingested`، لكن الإدارة من قاعدة البيانات هي الطريقة الموصى بها.
