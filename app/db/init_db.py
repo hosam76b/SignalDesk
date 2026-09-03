@@ -41,7 +41,7 @@ def migrate_topic_schema():
                 {"title": DEFAULT_TOPIC_TITLE},
             ).scalar_one()
 
-        for table in ("monitored_sources", "keywords", "posts"):
+        for table in ("keywords", "posts"):
             if table not in existing_tables:
                 continue
             columns = {column["name"] for column in inspect(connection).get_columns(table)}

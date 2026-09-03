@@ -6,7 +6,7 @@ import { Check, Edit3, FileText, Plus, Trash2, X } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
-type Role = "super_admin" | "topic_admin" | "topic_monitor";
+type Role = "super_admin" | "topic_admin" | "topic_manager" | "topic_monitor";
 type Lang = "ar" | "en";
 type Topic = { id: number; title: string; description?: string | null };
 type Item = {
@@ -48,7 +48,8 @@ export function TopicManagement({
   const [platform, setPlatform] = useState("rss");
   const [actorId, setActorId] = useState("");
   const [error, setError] = useState("");
-  const canManage = role === "super_admin" || role === "topic_admin";
+  const [notice, setNotice] = useState("");
+  const canManage = role === "super_admin" || role === "topic_admin" || role === "topic_manager";
   const loadTopics = async () => {
     try {
       const next = await request<Topic[]>("/api/v1/topics");
@@ -132,8 +133,18 @@ export function TopicManagement({
       );
       setItemModal(false);
       await loadItems();
+      setError("");
+      setNotice(editingItem
+        ? (lang === "ar" ? "تم تحديث السجل بنجاح." : "Record updated successfully.")
+        : tab === "sources"
+          ? (lang === "ar" ? "تم حفظ الرابط بنجاح." : "Source saved successfully.")
+          : (lang === "ar" ? "تم حفظ الكلمة المفتاحية بنجاح." : "Keyword saved successfully."));
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حفظ المورد." : "Unable to save the resource."));
+      setNotice("");
+      const message = cause instanceof Error ? cause.message : "";
+      setError(message === "Source URL or handle already exists"
+        ? (lang === "ar" ? "الرابط أو الحساب مضاف بالفعل، ولم يتم حفظه مرة أخرى." : "This URL or handle already exists and was not saved again.")
+        : message || (lang === "ar" ? "تعذر حفظ المورد." : "Unable to save the resource."));
     }
   };
   const openTopic = (topic?: Topic) => {
@@ -148,6 +159,8 @@ export function TopicManagement({
     setPlatform(item?.platform ?? "rss");
     setValue(item?.url_or_handle ?? item?.word_or_phrase ?? "");
     setActorId(item?.apify_actor_id ?? "");
+    setError("");
+    setNotice("");
     setItemModal(true);
   };
   const exportPdf = async (tId: number, tTitle: string) => {
@@ -185,6 +198,7 @@ export function TopicManagement({
         )}
       </div>
       {error && <div className="data-error">{error}</div>}
+      {notice && <div className="connection-message">{notice}</div>}
       <div className="access-grid">
         <div className="panel config-list">
           {topics.map((topic) => (
@@ -292,8 +306,15 @@ export function TopicManagement({
                           `/api/v1/topics/${selected.id}/${tab}/${item.id}`,
                           { method: "DELETE" },
                         )
-                          .then(loadItems)
-                          .catch(() => setError(lang === "ar" ? "تعذر حذف المورد." : "Unable to delete the resource."))
+                          .then(async () => {
+                            await loadItems();
+                            setError("");
+                            setNotice(lang === "ar" ? "تم حذف السجل." : "Record deleted.");
+                          })
+                          .catch((cause) => {
+                            setNotice("");
+                            setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر حذف المورد." : "Unable to delete the resource."));
+                          })
                       }
                     >
                       <Trash2 size={15} />
@@ -360,6 +381,7 @@ export function TopicManagement({
                 <X size={18} />
               </button>
             </div>
+            {error && <div className="data-error">{error}</div>}
             {tab === "sources" && (
               <>
                 <label>

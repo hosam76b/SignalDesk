@@ -128,6 +128,12 @@ type SpiderRunStatus = {
   accepted: number;
   discarded: number;
   active_keywords: string[];
+  search_topics?: string[];
+  target_keywords?: string[];
+  seed_urls?: string[];
+  relevance_threshold?: number;
+  max_depth?: number;
+  proxy_enabled?: boolean;
   errors: { url?: string; error?: string }[];
   started_at: string;
   finished_at: string | null;
@@ -608,6 +614,58 @@ function SpiderMonitor({ token, lang }: { token: string; lang: Lang }) {
 
   const activeRun = runs.find((run) => run.run_id === activeRunId) ?? runs.find((run) => run.status === "running") ?? runs[0] ?? null;
 
+  const getRunTargetKeywords = (run: SpiderRunStatus) => {
+    if (run.target_keywords) return run.target_keywords;
+    if (run.search_topics || run.seed_urls) return [];
+    return run.active_keywords;
+  };
+
+  const getRunParameterCount = (run: SpiderRunStatus) => {
+    if (run.search_topics || run.target_keywords || run.seed_urls) {
+      return (run.seed_urls?.length ?? 0) + (run.search_topics?.length ?? 0) + (run.target_keywords?.length ?? 0);
+    }
+    return run.active_keywords.length;
+  };
+
+  const applyRunParameters = (run: SpiderRunStatus) => {
+    setTopicId(run.topic_id);
+    setSearchTopics((run.search_topics ?? []).join(", "));
+    setTargetKeywords(getRunTargetKeywords(run).join(", "));
+    setSeedUrls((run.seed_urls ?? []).join("\n"));
+    setRelevanceThreshold(run.relevance_threshold ?? 30);
+    setMaxDepth(run.max_depth ?? 1);
+    setProxyEnabled(run.proxy_enabled ?? false);
+    setActiveRunId(run.run_id);
+  };
+
+  const rerun = async (run: SpiderRunStatus) => {
+    if (starting) return;
+    setStarting(true);
+    setError("");
+    setMessage("");
+    try {
+      const result = await request<{ run_id: string; status: string; message: string }>("/api/v1/spider/run", token, {
+        method: "POST",
+        body: JSON.stringify({
+          topic_id: run.topic_id,
+          search_topics: run.search_topics ?? [],
+            target_keywords: getRunTargetKeywords(run),
+          seed_urls: run.seed_urls ?? [],
+          relevance_threshold: run.relevance_threshold ?? 30,
+          max_depth: run.max_depth ?? 1,
+          proxy_enabled: run.proxy_enabled ?? false,
+        }),
+      });
+      setActiveRunId(result.run_id);
+      setMessage(result.message || (lang === "ar" ? "تمت إعادة تشغيل السبايدر." : "Spider rerun started."));
+      await loadRuns();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر إعادة تشغيل الزحف." : "Unable to rerun the spider."));
+    } finally {
+      setStarting(false);
+    }
+  };
+
   const startRun = async () => {
     if (!topicId || starting) return;
     const parsedSeedUrls = seedUrls.split("\n").map((item) => item.trim()).filter(Boolean);
@@ -786,7 +844,14 @@ function SpiderMonitor({ token, lang }: { token: string; lang: Lang }) {
               <div className={`spider-history-row ${run.run_id === activeRun?.run_id ? "active" : ""}`} key={run.run_id} onClick={() => setActiveRunId(run.run_id)}>
                 <span className={`automation-status-dot ${run.status === "running" ? "running" : "idle"}`} />
                 <strong>{run.run_id}</strong>
-                <span>{run.accepted}/{run.pages_crawled} {lang === "ar" ? "مقبولة" : "accepted"}</span>
+                <span>
+                  {run.accepted}/{run.pages_crawled} {lang === "ar" ? "مقبولة" : "accepted"}
+                  <small>{lang === "ar" ? "المحددات" : "Parameters"}: {getRunParameterCount(run)}</small>
+                </span>
+                <span className="spider-history-actions" onClick={(event) => event.stopPropagation()}>
+                  <button type="button" className="secondary-button" disabled={starting} onClick={() => void rerun(run)}>{lang === "ar" ? "إعادة تشغيل" : "Rerun"}</button>
+                  <button type="button" className="secondary-button" onClick={() => applyRunParameters(run)}>{lang === "ar" ? "تعديل المحددات" : "Edit parameters"}</button>
+                </span>
                 <span className="badge badge-neutral">{run.status}</span>
               </div>
             ))}
@@ -805,7 +870,6 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
   const [selectedTopicId, setSelectedTopicId] = useState<number | null>(null);
   const [selected, setSelected] = useState<Post | null>(null);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
-  const [spiderStatus, setSpiderStatus] = useState<SpiderActiveStatus | null>(null);
   const [activityPage, setActivityPage] = useState(1);
   const [error, setError] = useState("");
   const activityPageSize = 5;
@@ -857,16 +921,6 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
     const timer = window.setInterval(() => void load(), 10000);
     return () => window.clearInterval(timer);
   }, [selectedTopicId, token]);
-
-  useEffect(() => {
-    const load = () =>
-      get<SpiderActiveStatus>("/api/v1/spider/active-status", token)
-        .then(setSpiderStatus)
-        .catch(() => setSpiderStatus(null));
-    void load();
-    const timer = window.setInterval(() => void load(), 10000);
-    return () => window.clearInterval(timer);
-  }, [token]);
 
   const exportReport = async (format: "pdf" | "csv" | "json" | "xlsx") => {
     if (!selectedTopicId) return;
@@ -933,14 +987,6 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
               ? "ملخص البيانات الحقيقية من قاعدة البيانات."
               : "Summary of live database data."}
           </p>
-        </div>
-        <div className={`spider-status-badge ${spiderStatus?.is_running ? "running" : "idle"}`} title={language === "ar" ? "حالة السبايدر" : "Spider status"}>
-          <SpiderIcon size={17} />
-          <span>
-            {spiderStatus?.is_running
-              ? (language === "ar" ? "السبايدر يعمل" : "Spider running")
-              : (language === "ar" ? "السبايدر متوقف" : "Spider idle")}
-          </span>
         </div>
       </div>
       {error && <div className="data-error">{error}</div>}
@@ -1383,13 +1429,16 @@ function PostDetailDialog({
 
 function Feed({ token, lang }: { token: string; lang: Lang }) {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
   const [range, setRange] = useState("day");
   const [keyword, setKeyword] = useState("");
+  const [topicFilter, setTopicFilter] = useState("all");
+  const [websiteFilter, setWebsiteFilter] = useState("all");
   const [selected, setSelected] = useState<Post | null>(null);
   const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
   const [exporting, setExporting] = useState<"pdf" | "csv" | "json" | "xlsx" | null>(null);
   const [exportError, setExportError] = useState("");
-  const [now, setNow] = useState(0);
+  const [now, setNow] = useState(() => Date.now());
   const [filtered, setFiltered] = useState<Post[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "kanban">("table");
   const [feedPage, setFeedPage] = useState(1);
@@ -1400,8 +1449,8 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
     feedPage * feedPageSize,
   );
   useEffect(() => {
-    const timer = window.setTimeout(() => setNow(new Date().getTime()), 0);
-    return () => window.clearTimeout(timer);
+    const timer = window.setInterval(() => setNow(Date.now()), 60000);
+    return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
     const load = () =>
@@ -1412,6 +1461,11 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
     const timer = window.setInterval(() => void load(), 10000);
     return () => window.clearInterval(timer);
   }, [token]);
+  useEffect(() => {
+    void get<Topic[]>("/api/v1/topics", token)
+      .then(setTopics)
+      .catch(() => setTopics([]));
+  }, [token]);
   const durations: Record<string, number> = {
     hour: 3600000,
     day: 86400000,
@@ -1420,25 +1474,44 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
     days90: 7776000000,
     year: 31536000000,
   };
+  const getPostWebsite = (post: Post) => {
+    if (!post.post_url) return post.platform;
+    try {
+      return new URL(post.post_url).hostname.replace(/^www\./, "");
+    } catch {
+      return post.platform;
+    }
+  };
+  const websiteOptions = useMemo(
+    () => Array.from(new Set(posts.map(getPostWebsite).filter(Boolean))).sort((a, b) => a.localeCompare(b)),
+    [posts],
+  );
   useEffect(() => {
     const timer = window.setTimeout(() => {
       const search = keyword.toLocaleLowerCase();
       setFiltered(
         posts.filter(
-          (post) =>
-            now - new Date(post.scraped_at).getTime() <= durations[range] &&
-            `${post.title ?? ""} ${post.content} ${post.author} ${post.platform}`
-              .toLocaleLowerCase()
-              .includes(search),
+          (post) => {
+            const scrapedAt = new Date(post.scraped_at).getTime();
+            const age = now - scrapedAt;
+            return Number.isFinite(scrapedAt) &&
+              age >= 0 &&
+              age <= durations[range] &&
+              (topicFilter === "all" || post.topic_id === Number(topicFilter)) &&
+              (websiteFilter === "all" || getPostWebsite(post) === websiteFilter) &&
+              `${post.title ?? ""} ${post.content} ${post.author} ${post.platform}`
+                .toLocaleLowerCase()
+                .includes(search);
+          },
         ),
       );
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [posts, now, range, keyword]);
+  }, [posts, now, range, keyword, topicFilter, websiteFilter]);
   // Only jump back to page 1 when the user changes a filter, not on every background refresh.
   useEffect(() => {
     setFeedPage(1);
-  }, [range, keyword]);
+  }, [range, keyword, topicFilter, websiteFilter]);
   useEffect(() => {
     setFeedPage((current) => Math.min(current, feedPageCount));
   }, [feedPageCount]);
@@ -1488,7 +1561,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
         <div>
           <p className="eyebrow">{lang === "ar" ? "بيانات مباشرة" : "Live data"}</p>
           <h1>{lang === "ar" ? "موجز الاستخبارات" : "Intelligence feed"}</h1>
-          <p className="subhead">{lang === "ar" ? `${filtered.length} خبر مطابق للفترة والكلمة.` : `${filtered.length} items match the selected range and keyword.`}</p>
+          <p className="subhead">{lang === "ar" ? `${filtered.length} خبر مطابق للفلاتر الحالية.` : `${filtered.length} items match the current filters.`}</p>
         </div>
       </div>
       <div className="feed-filters">
@@ -1507,6 +1580,30 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
           {ranges.map(([value, label]) => (
             <option value={value} key={value}>
               {label}
+            </option>
+          ))}
+        </select>
+        <select
+          value={topicFilter}
+          onChange={(event) => setTopicFilter(event.target.value)}
+          aria-label={lang === "ar" ? "فلترة بالموضوع" : "Filter by topic"}
+        >
+          <option value="all">{lang === "ar" ? "كل المواضيع" : "All topics"}</option>
+          {topics.map((topic) => (
+            <option value={String(topic.id)} key={topic.id}>
+              {topic.title}
+            </option>
+          ))}
+        </select>
+        <select
+          value={websiteFilter}
+          onChange={(event) => setWebsiteFilter(event.target.value)}
+          aria-label={lang === "ar" ? "فلترة بالموقع" : "Filter by website"}
+        >
+          <option value="all">{lang === "ar" ? "كل المواقع" : "All websites"}</option>
+          {websiteOptions.map((website) => (
+            <option value={website} key={website}>
+              {website}
             </option>
           ))}
         </select>
@@ -2978,12 +3075,23 @@ export default function Home() {
   const isManager = role === "topic_manager" || role === "topic_admin" || role === "super_admin";
   const [pendingCount, setPendingCount] = useState(0);
   const [quickIngestOpen, setQuickIngestOpen] = useState(false);
+  const [spiderStatus, setSpiderStatus] = useState<SpiderActiveStatus | null>(null);
   useEffect(() => {
     if (!isManager || !token) return;
     void get<ApprovalsSummary>("/api/v1/topics/1/approvals", token)
       .then((data) => setPendingCount(data.sources.length + data.keywords.length))
       .catch(() => setPendingCount(0));
   }, [token, isManager, page]);
+  useEffect(() => {
+    if (!token) return;
+    const load = () =>
+      get<SpiderActiveStatus>("/api/v1/spider/active-status", token)
+        .then(setSpiderStatus)
+        .catch(() => setSpiderStatus(null));
+    void load();
+    const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
+  }, [token]);
   if (!token) return <Login lang={lang} onLogin={onLogin} toggle={toggle} />;
   const t = labels[lang];
   const allowedNavIds: readonly string[] = isRestricted
@@ -3056,6 +3164,14 @@ export default function Home() {
               <Search size={17} />
               <input placeholder={lang === "ar" ? "بحث" : "Search"} />
             </label>
+            <div className={`spider-status-badge ${spiderStatus?.is_running ? "running" : "idle"}`} title={lang === "ar" ? "حالة السبايدر" : "Spider status"}>
+              <SpiderIcon size={17} />
+              <span>
+                {spiderStatus?.is_running
+                  ? (lang === "ar" ? "السبايدر يعمل" : "Spider running")
+                  : (lang === "ar" ? "السبايدر متوقف" : "Spider idle")}
+              </span>
+            </div>
             <button className="secondary-button" onClick={() => setQuickIngestOpen(true)}>
               <Plus size={15} /> {lang === "ar" ? "إدراج سريع" : "Quick Ingest"}
             </button>

@@ -69,6 +69,12 @@ class SpiderStatusResponse(BaseModel):
     accepted: int
     discarded: int
     active_keywords: list[str]
+    search_topics: list[str] = Field(default_factory=list)
+    target_keywords: list[str] = Field(default_factory=list)
+    seed_urls: list[str] = Field(default_factory=list)
+    relevance_threshold: float = 30.0
+    max_depth: int = 1
+    proxy_enabled: bool = False
     errors: list[dict]
     started_at: str
     finished_at: str | None
@@ -106,6 +112,7 @@ async def run_spider(
         topic_id=payload.topic_id,
         search_topics=payload.search_topics,
         target_keywords=payload.target_keywords,
+        seed_urls=payload.seed_urls or [],
         relevance_threshold=payload.relevance_threshold,
         max_depth=payload.max_depth,
         proxy_enabled=payload.proxy_enabled,

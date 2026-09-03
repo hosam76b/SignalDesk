@@ -35,7 +35,10 @@ def upgrade() -> None:
                 "DELETE FROM monitored_sources WHERE id IN :duplicate_ids"
             ).bindparams(sa.bindparam("duplicate_ids", expanding=True)), {"duplicate_ids": duplicate_ids})
 
+    indexes = {index["name"] for index in sa.inspect(bind).get_indexes("monitored_sources")}
     with op.batch_alter_table("monitored_sources") as batch_op:
+        if "ix_monitored_sources_topic_id" in indexes:
+            batch_op.drop_index("ix_monitored_sources_topic_id")
         batch_op.drop_column("topic_id")
         batch_op.create_unique_constraint("uq_monitored_sources_url_or_handle", ["url_or_handle"])
 

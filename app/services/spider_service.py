@@ -154,12 +154,18 @@ class SpiderRun:
         self,
         run_id: str,
         topic_id: int,
+        search_topics: list[str],
+        target_keywords: list[str],
+        seed_urls: list[str],
         relevance_threshold: float,
         max_depth: int,
         proxy_enabled: bool,
     ) -> None:
         self.run_id = run_id
         self.topic_id = topic_id
+        self.search_topics = list(search_topics)
+        self.target_keywords = list(target_keywords)
+        self.seed_urls = list(seed_urls)
         self.relevance_threshold = relevance_threshold
         self.max_depth = max_depth
         self.proxy_enabled = proxy_enabled
@@ -191,6 +197,12 @@ class SpiderRun:
             "accepted": self.accepted,
             "discarded": self.discarded,
             "active_keywords": sorted(self.keywords),
+            "search_topics": self.search_topics,
+            "target_keywords": self.target_keywords,
+            "seed_urls": self.seed_urls,
+            "relevance_threshold": self.relevance_threshold,
+            "max_depth": self.max_depth,
+            "proxy_enabled": self.proxy_enabled,
             "errors": self.errors[-10:],
             "started_at": self.started_at.isoformat(),
             "finished_at": self.finished_at.isoformat() if self.finished_at else None,
@@ -208,12 +220,13 @@ class SpiderOrchestrator:
         topic_id: int,
         search_topics: list[str],
         target_keywords: list[str],
+        seed_urls: list[str],
         relevance_threshold: float,
         max_depth: int,
         proxy_enabled: bool,
     ) -> SpiderRun:
         run_id = uuid.uuid4().hex[:12]
-        run = SpiderRun(run_id, topic_id, relevance_threshold, max_depth, proxy_enabled)
+        run = SpiderRun(run_id, topic_id, search_topics, target_keywords, seed_urls, relevance_threshold, max_depth, proxy_enabled)
         run.add_keywords([*search_topics, *target_keywords])
         self.runs[run_id] = run
         return run
@@ -255,6 +268,8 @@ class SpiderOrchestrator:
         if run is None:
             return None
         async with run.lock:
+            run.search_topics.extend([word for word in search_topics if word.strip()])
+            run.target_keywords.extend([word for word in target_keywords if word.strip()])
             run.add_keywords([*search_topics, *target_keywords])
         return run
 

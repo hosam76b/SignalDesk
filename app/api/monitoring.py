@@ -8,6 +8,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_admin_user
@@ -22,7 +23,7 @@ router = APIRouter(prefix="/api/monitoring", tags=["Monitoring Configuration"])
 class SourceInput(BaseModel):
     """Source creation/update payload."""
 
-    platform: str = Field(min_length=2, max_length=50)
+    platform: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=255)
     url_or_handle: str = Field(min_length=1, max_length=500)
     is_active: bool = True
@@ -91,7 +92,16 @@ def create_source(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists")
     record = MonitoredSource(status="active", **source.model_dump())
     db.add(record)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if "monitored_sources.topic_id" in str(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database migration required before adding global sources. Run alembic stamp 0005_media_processing, then alembic upgrade head.",
+            ) from exc
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Source URL or handle already exists") from exc
     db.refresh(record)
     return record
 

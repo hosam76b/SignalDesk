@@ -17,6 +17,7 @@ htmlcov/
 *.log
 *.sqlite
 *.db
+*.db.backup
 
 # Quick Ingest uploads
 media_uploads/

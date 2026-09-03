@@ -86,6 +86,22 @@ class ScraperService:
         try:
             posts = await asyncio.to_thread(native_methods[platform], target, keywords or [])
             return {"success": True, "posts": posts, "error": None, "method": "native"}
+        except httpx.HTTPError as exc:
+            logger.warning("Native %s scraping failed for %s: %s", platform, target, exc)
+            if self.apify.is_configured and (
+                platform in APIFY_PLATFORMS or use_apify or apify_actor_id
+            ):
+                logger.info("Falling back to Apify for %s", target)
+                fallback = await self.apify.scrape_social_source(platform, target)
+                if fallback.get("success"):
+                    return fallback
+                return {
+                    "success": False,
+                    "posts": [],
+                    "error": f"Native scraping failed: {exc}; Apify fallback failed: {fallback.get('error')}",
+                    "method": "apify",
+                }
+            return {"success": False, "posts": [], "error": str(exc), "method": "native"}
         except Exception as exc:
             logger.exception("Native %s scraping failed for %s", platform, target)
             if self.apify.is_configured and (
@@ -121,8 +137,18 @@ class ScraperService:
 
     def scrape_rss(self, url: str, _: list[str] | None = None) -> list[dict[str, Any]]:
         """Fetch and parse RSS or Atom entries after removing invalid XML characters."""
-        response = httpx.get(url, timeout=15, follow_redirects=True)
-        response.raise_for_status()
+        response: httpx.Response | None = None
+        for attempt in range(2):
+            try:
+                response = httpx.get(url, timeout=15, follow_redirects=True)
+                response.raise_for_status()
+                break
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.NetworkError) as exc:
+                if attempt == 1:
+                    raise
+                logger.warning("RSS request failed for %s (%s); retrying once", url, exc)
+        if response is None:
+            raise RuntimeError(f"RSS request failed for {url}")
         raw_xml = response.content.decode(response.encoding or "utf-8", errors="replace")
         cleaned_xml = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]', '', raw_xml)
         feed = feedparser.parse(BytesIO(cleaned_xml.encode("utf-8")))
