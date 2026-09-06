@@ -11,15 +11,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-if settings.db_url.startswith("sqlite"):
-    engine = create_engine(
-        settings.db_url,
-        connect_args={"check_same_thread": False},
-        future=True,
-    )
-else:
-    engine = create_engine(
-        settings.db_url,
+def _create_engine(db_url: str):
+    if db_url.startswith("sqlite"):
+        return create_engine(
+            db_url,
+            connect_args={"check_same_thread": False},
+            future=True,
+        )
+    return create_engine(
+        db_url,
         connect_args={},
         poolclass=None,
         pool_size=10,
@@ -29,6 +29,9 @@ else:
         echo=False,
         future=True,
     )
+
+
+engine = _create_engine(settings.db_url)
 
 # Create session factory
 SessionLocal = sessionmaker(
@@ -40,6 +43,18 @@ SessionLocal = sessionmaker(
 
 # Declarative base for all models
 Base = declarative_base()
+
+
+def configure_database(db_url: str) -> None:
+    """Rebind the session factory to a database selected during first-run setup."""
+    global engine
+    new_engine = _create_engine(db_url)
+    with new_engine.connect():
+        pass
+    previous_engine = engine
+    engine = new_engine
+    SessionLocal.configure(bind=engine)
+    previous_engine.dispose()
 
 
 def get_db() -> Session:

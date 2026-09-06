@@ -45,12 +45,26 @@ class Settings(BaseSettings):
     ollama_enabled: bool = True
     ollama_model: str = "qwen2.5:7b"
     ollama_base_url: str = "http://localhost:11434"
+    ollama_api_key: str = ""
     openrouter_api_key: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     openrouter_model: str = "openai/gpt-4o-mini"
     google_ai_studio_api_key: str = ""
     google_ai_studio_base_url: str = "https://generativelanguage.googleapis.com/v1beta/models"
     google_ai_studio_model: str = "gemini-2.0-flash"
+    custom_openai_api_key: str = ""
+    custom_openai_base_url: str = "https://api.openai.com/v1"
+    custom_openai_model: str = "gpt-4o-mini"
+    ai_request_timeout: float = 180.0
+    ai_max_concurrency: int = 5
+    # Retry the local Ollama server when the selected cloud provider fails or times out.
+    ai_fallback_enabled: bool = True
+    ai_fallback_provider: str = "ollama"
+    ai_vision_enabled: bool = True
+    ai_max_images_per_post: int = 2
+    knowledge_rag_enabled: bool = True
+    knowledge_rag_top_k: int = 3
+    knowledge_chunk_chars: int = 700
     # API Keys
     gemini_api_key: str = ""
     reddit_client_id: str = ""

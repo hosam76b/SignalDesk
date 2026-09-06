@@ -17,6 +17,7 @@ from app.models.topic import Topic
 from app.services.scraper_service import ScraperService
 from app.services.webhook_service import dispatch_post_ingested
 from app.services.media_processor import schedule_media_processing
+from app.services.risk_signals import screen_text
 
 logger = logging.getLogger(__name__)
 
@@ -261,6 +262,9 @@ class ScraperOrchestrator:
 
                 seen_keys.update((key, value) for key, value in candidate_keys if value)
 
+                # Rule-based pre-screen so explicit threats are visible before the AI batch runs.
+                risk = screen_text(content)
+
                 # Create new Post object
                 new_post = Post(
                     topic_id=topic_id,
@@ -278,7 +282,9 @@ class ScraperOrchestrator:
                     tags=post_data.get("tags", []),
                     published_at=post_data.get("published_at", datetime.now(timezone.utc)),
                     scraped_at=datetime.now(timezone.utc),
-                    is_flagged=False,
+                    is_flagged=risk is not None,
+                    is_dangerous=risk is not None,
+                    violence_category=risk["violence_category"] if risk else None,
                     media_status="pending",
                 )
 

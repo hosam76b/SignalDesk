@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
@@ -36,6 +37,7 @@ from app.api import profile as profile_routes
 from app.api import posts as posts_routes
 from app.api import ingestion as ingestion_routes
 from app.api import spider as spider_routes
+from app.api import setup as setup_routes
 from config import settings
 
 # Import all models to register them with SQLAlchemy
@@ -178,6 +180,7 @@ app.include_router(profile_routes.router)
 app.include_router(posts_routes.router)
 app.include_router(ingestion_routes.router)
 app.include_router(spider_routes.router)
+app.include_router(setup_routes.router)
 
 
 def custom_openapi() -> dict:
@@ -210,17 +213,6 @@ app.openapi = custom_openapi
 # Health Check Endpoints
 # ============================================================================
 
-@app.get("/", tags=["Health"])
-async def root():
-    """Root health check endpoint."""
-    return {
-        "message": "Media Monitoring Platform Running",
-        "app": settings.app_name,
-        "version": settings.app_version,
-        "status": "operational"
-    }
-
-
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Detailed health check endpoint."""
@@ -228,6 +220,24 @@ async def health_check():
         "status": "healthy",
         "database": "connected",
         "cache": "configured"
+    }
+
+
+FRONTEND_OUT_DIR = Path(__file__).resolve().parent / "frontend" / "out"
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def serve_frontend(path: str):
+    """Serve the exported Next.js app and fall back to its SPA entry point."""
+    candidate = FRONTEND_OUT_DIR / path
+    if path and candidate.is_file():
+        return FileResponse(candidate)
+    index_file = FRONTEND_OUT_DIR / "index.html"
+    if index_file.is_file():
+        return FileResponse(index_file)
+    return {
+        "message": "SignalDesk frontend has not been built yet",
+        "build_command": "cd frontend; npm run build",
     }
 
 

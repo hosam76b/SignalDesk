@@ -15,6 +15,7 @@ from pathlib import Path
 from app.db.session import SessionLocal
 from app.models.post import Post
 from app.services.media_extraction_service import media_extractor
+from app.services.risk_signals import clean_text
 
 logger = logging.getLogger(__name__)
 
@@ -98,9 +99,42 @@ def schedule_media_processing(post_id: int) -> None:
 
 def build_combined_text(post: Post) -> str:
     """Merge raw post text with OCR/transcript results for unified sentiment/AI analysis."""
-    parts = [post.content or ""]
+    parts = [clean_text(post.content)]
     if post.extracted_ocr_text:
-        parts.append(f"[OCR]: {post.extracted_ocr_text}")
+        parts.append(f"[OCR]: {clean_text(post.extracted_ocr_text)}")
     if post.video_transcript:
-        parts.append(f"[Transcript]: {post.video_transcript}")
+        parts.append(f"[Transcript]: {clean_text(post.video_transcript)}")
     return "\n".join(part for part in parts if part).strip()
+
+
+def collect_image_refs(post: Post, limit: int = 2) -> list[str]:
+    """Resolve a post's image media into fetchable URLs or local file paths."""
+    refs: list[str] = []
+    for media_url in (post.media_urls or []):
+        if not isinstance(media_url, str) or not media_url:
+            continue
+        if media_url.startswith(("http://", "https://")):
+            refs.append(media_url)
+        elif media_url.startswith("/media/"):
+            local_path = UPLOAD_ROOT / media_url.removeprefix("/media/")
+            if local_path.is_file():
+                refs.append(str(local_path))
+        if len(refs) >= limit:
+            break
+    return refs
+
+
+async def load_inline_images(image_refs: list[str], limit: int = 2) -> list[dict[str, str]]:
+    """Load base64 image payloads for vision models; failures degrade to OCR-only text."""
+    images: list[dict[str, str]] = []
+    for ref in image_refs[:limit]:
+        try:
+            payload = await asyncio.wait_for(
+                media_extractor.load_inline_image(ref), _EXTRACTION_TIMEOUT_SECONDS
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Inline image load timed out for %s", ref[:80])
+            continue
+        if payload:
+            images.append(payload)
+    return images

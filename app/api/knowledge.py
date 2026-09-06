@@ -12,6 +12,7 @@ from app.db.session import get_db
 from app.models.knowledge import KnowledgeDocument
 from app.models.topic import Topic
 from app.models.user import User
+from app.services.knowledge_context import index_document, invalidate_document
 
 router = APIRouter(prefix="/api/knowledge", tags=["Knowledge Base"])
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "storage" / "knowledge"
@@ -67,6 +68,8 @@ async def upload_document(topic_id: int, title: str = Form(...), tags: str | Non
     db.add(document)
     db.commit()
     db.refresh(document)
+    if document.extracted_text:
+        index_document(document)
     return serialize(document)
 
 
@@ -78,3 +81,4 @@ def delete_document(document_id: int, db: Session = Depends(get_db), _: User = D
     Path(document.file_path).unlink(missing_ok=True)
     db.delete(document)
     db.commit()
+    invalidate_document(document_id)

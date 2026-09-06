@@ -36,8 +36,13 @@ import { UserManagement } from "./admin-users";
 import { TopicAdminHub as TopicManagement } from "./topic-admin-hub";
 import { AuditDashboard } from "./audit-dashboard";
 import { PropagationGraphView } from "./propagation-graph-view";
+import { SetupWizard } from "./setup-wizard";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API = process.env.NEXT_PUBLIC_API_URL ?? (
+  typeof window !== "undefined" && window.location.port !== "8000"
+    ? "http://127.0.0.1:8000"
+    : ""
+);
 type Lang = "ar" | "en";
 type Page =
   | "overview"
@@ -139,6 +144,13 @@ type SpiderRunStatus = {
   finished_at: string | null;
 };
 type SpiderActiveStatus = { is_running: boolean; active_runs: number; total_runs: number; last_run_id: string | null; last_status: string | null };
+
+const AI_PROVIDER_DEFAULTS: Record<string, { model: string; baseUrl: string; models: string[] }> = {
+  ollama: { model: "qwen2.5:7b", baseUrl: "http://localhost:11434", models: ["qwen2.5:7b", "llama3.1:8b", "mistral:7b"] },
+  openrouter: { model: "openai/gpt-4o-mini", baseUrl: "https://openrouter.ai/api/v1", models: ["openai/gpt-4o-mini", "anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash-001"] },
+  google_ai_studio: { model: "gemini-2.0-flash", baseUrl: "https://generativelanguage.googleapis.com/v1beta/models", models: ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-pro"] },
+  custom_openai: { model: "gpt-4o-mini", baseUrl: "https://api.openai.com/v1", models: ["gpt-4o-mini", "gpt-4.1-mini", "local-model"] },
+};
 
 function SpiderIcon({ size = 18, color = "currentColor", className }: { size?: number; color?: string; className?: string }) {
   return (
@@ -1133,7 +1145,7 @@ function Dashboard({ token, lang: language }: { token: string; lang: Lang }) {
               {post.platform[0]?.toUpperCase()}
             </span>
             <span className="activity-main">
-              <strong>{post.title || post.content.slice(0, 100)}</strong>
+              <strong>{toPlainText(post.title, 100) || toPlainText(post.content, 100)}</strong>
               <small>
                 {post.author} ·{" "}
                 {new Date(post.scraped_at).toLocaleString(
@@ -1198,6 +1210,25 @@ function extractYoutubeVideoId(url: string | null | undefined): string | null {
 
 function resolveMediaUrl(url: string): string {
   return url.startsWith("/") ? `${API}${url}` : url;
+}
+
+// Scrapers (Reddit RSS in particular) store raw markup, which breaks card layouts.
+function toPlainText(raw: string | null | undefined, limit?: number): string {
+  if (!raw) return "";
+  const stripped = raw
+    .replace(/<!--[\s\S]*?-->/g, " ")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&#(\d+);/g, (_match, code: string) => String.fromCharCode(Number(code)))
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/https?:\/\/\S+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (limit === undefined || stripped.length <= limit) return stripped;
+  return `${stripped.slice(0, limit).trimEnd()}…`;
 }
 
 function PostDetailDialog({
@@ -1687,7 +1718,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
             return (
               <article className={`kanban-card severity-${severity} ${checkedIds.has(post.id) ? "selected" : ""}`} key={post.id}>
                 <div className="kanban-card-top"><span>{post.platform}</span><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={checkedIds.has(post.id)} onChange={() => toggleChecked(post.id)} aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"} /></label></div>
-                <button type="button" onClick={() => setSelected(post)}><strong>{post.title || post.content.slice(0, 100)}</strong><p>{post.content.slice(0, 180)}</p></button>
+                <button type="button" onClick={() => setSelected(post)}><strong>{toPlainText(post.title, 90) || toPlainText(post.content, 90)}</strong><p>{toPlainText(post.content, 180)}</p></button>
                 <div className="kanban-card-footer"><small>{post.author} · {new Date(post.scraped_at).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US")}</small><span className="severity-label">{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span></div>
               </article>
             );
@@ -2732,9 +2763,9 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
   );
   const [name, setName] = useState(() => (lang === "ar" ? "تحليل المحتوى" : "Content analysis"));
   const [provider, setProvider] = useState("ollama");
-  const [modelName, setModelName] = useState("qwen2.5:7b");
-  const [availableModels, setAvailableModels] = useState<string[]>(["qwen2.5:7b", "llama3.1:8b", "mistral:7b"]);
-  const [baseUrl, setBaseUrl] = useState("http://localhost:11434");
+  const [modelName, setModelName] = useState(AI_PROVIDER_DEFAULTS.ollama.model);
+  const [availableModels, setAvailableModels] = useState<string[]>(AI_PROVIDER_DEFAULTS.ollama.models);
+  const [baseUrl, setBaseUrl] = useState(AI_PROVIDER_DEFAULTS.ollama.baseUrl);
   const [apiKey, setApiKey] = useState("");
   const [hasApiKey, setHasApiKey] = useState(false);
   const [configured, setConfigured] = useState(false);
@@ -2748,7 +2779,26 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
     { value: "ollama", label: "Ollama" },
     { value: "openrouter", label: "OpenRouter" },
     { value: "google_ai_studio", label: "Google AI Studio" },
+    { value: "custom_openai", label: lang === "ar" ? "مزود OpenAI-compatible" : "OpenAI-compatible" },
   ];
+
+  const providerHelp = AI_PROVIDER_DEFAULTS[provider]?.baseUrl ?? AI_PROVIDER_DEFAULTS.ollama.baseUrl;
+
+  const applyProviderDefaults = (nextProvider: string) => {
+    const defaults = AI_PROVIDER_DEFAULTS[nextProvider] ?? AI_PROVIDER_DEFAULTS.ollama;
+    setProvider(nextProvider);
+    setModelName(defaults.model);
+    setAvailableModels(defaults.models);
+    setBaseUrl(defaults.baseUrl);
+    setConnectionMessage("");
+  };
+
+  const connectionPayload = () => ({
+    provider,
+    model: modelName,
+    base_url: baseUrl.trim() || providerHelp,
+    api_key: apiKey || null,
+  });
 
   useEffect(() => {
     get<AiStatus>("/api/ai/status", token)
@@ -2824,9 +2874,9 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
       });
       setTestResult({ renderedPrompt: response.rendered_prompt, analysis: response.analysis });
       setResult("");
-    } catch {
+    } catch (error) {
       setTestResult(null);
-      setResult(lang === "ar" ? "تعذر اختبار النموذج." : "Prompt test failed.");
+      setResult(error instanceof Error ? error.message : (lang === "ar" ? "تعذر اختبار النموذج." : "Prompt test failed."));
     } finally {
       setTesting(false);
     }
@@ -2858,45 +2908,54 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
 
   const saveConnection = async () => {
     try {
+      const payload = connectionPayload();
       const config = await request<{ has_api_key: boolean }>("/api/ai/config", token, {
         method: "PUT",
-        body: JSON.stringify({ provider, model: modelName, base_url: baseUrl, api_key: apiKey || null }),
+        body: JSON.stringify(payload),
       });
       setHasApiKey(config.has_api_key);
       setConfigured(true);
+      setBaseUrl(payload.base_url);
       setApiKey("");
       setConnectionMessage(lang === "ar" ? "تم حفظ إعدادات الاتصال." : "Connection settings saved.");
-    } catch {
-      setConnectionMessage(lang === "ar" ? "تعذر حفظ إعدادات الاتصال." : "Unable to save connection settings.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      setConnectionMessage(lang === "ar" ? `تعذر حفظ إعدادات الاتصال. ${detail}` : `Unable to save connection settings. ${detail}`);
     }
   };
 
   const testConnection = async () => {
     try {
+      const payload = connectionPayload();
       await request("/api/ai/config", token, {
         method: "PUT",
-        body: JSON.stringify({ provider, model: modelName, base_url: baseUrl, api_key: apiKey || null }),
+        body: JSON.stringify(payload),
       });
       const response = await request<{ models: string[] }>("/api/ai/config/test", token, { method: "POST" });
+      setBaseUrl(payload.base_url);
       setAvailableModels(response.models);
       if (response.models.length && !response.models.includes(modelName)) setModelName(response.models[0]);
       setConnectionMessage(`${lang === "ar" ? "تم الاتصال بنجاح. النماذج المتاحة: " : "Connected. Available models: "}${response.models.length}`);
-    } catch {
-      setConnectionMessage(lang === "ar" ? "فشل الاتصال. تحقق من الرابط والتوكن." : "Connection failed. Check the URL and token.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      setConnectionMessage(lang === "ar" ? `فشل الاتصال. تحقق من الرابط والتوكن. ${detail}` : `Connection failed. Check the URL and token. ${detail}`);
     }
   };
 
   const fetchModels = async () => {
     try {
+      const payload = connectionPayload();
       await request("/api/ai/config", token, {
         method: "PUT",
-        body: JSON.stringify({ provider, model: modelName, base_url: baseUrl, api_key: apiKey || null }),
+        body: JSON.stringify(payload),
       });
       const response = await request<{ models: string[] }>("/api/ai/config/models", token);
+      setBaseUrl(payload.base_url);
       setAvailableModels(response.models);
       setConnectionMessage(lang === "ar" ? `تم جلب ${response.models.length} نموذجاً.` : `Fetched ${response.models.length} models.`);
-    } catch {
-      setConnectionMessage(lang === "ar" ? "تعذر جلب النماذج." : "Unable to fetch models.");
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : "";
+      setConnectionMessage(lang === "ar" ? `تعذر جلب النماذج. ${detail}` : `Unable to fetch models. ${detail}`);
     }
   };
 
@@ -2920,9 +2979,7 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
               <label>
                 {lang === "ar" ? "مزود الذكاء الاصطناعي" : "AI provider"}
                 <select value={provider} onChange={(event) => {
-                  const nextProvider = event.target.value;
-                  setProvider(nextProvider);
-                  setModelName(nextProvider === "ollama" ? "qwen2.5:7b" : nextProvider === "openrouter" ? "openai/gpt-4o-mini" : "gemini-2.0-flash");
+                  applyProviderDefaults(event.target.value);
                 }}>
                   {providerOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
                 </select>
@@ -2937,7 +2994,7 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
             <label>
               {lang === "ar" ? "رابط الخدمة" : "Service URL"}
               <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="https://..." />
-              <small className="field-help">{lang === "ar" ? "مثال Ollama: http://localhost:11434" : "Example for Ollama: http://localhost:11434"}</small>
+              <small className="field-help">{lang === "ar" ? `مثال: ${providerHelp}` : `Example: ${providerHelp}`}</small>
             </label>
             <label>
               {lang === "ar" ? "مفتاح API" : "API key"}
@@ -2953,7 +3010,7 @@ function PromptSettingsPanel({ token, role, lang, section = "connection" }: { to
           <div className="model-card-grid">
             <div className="model-info-card"><span className="model-card-label">{lang === "ar" ? "المزود النشط" : "Active provider"}</span><strong>{providerOptions.find((option) => option.value === provider)?.label ?? provider}</strong><small>{baseUrl}</small></div>
             <div className="model-info-card"><span className="model-card-label">{lang === "ar" ? "الموديل المحدد" : "Selected model"}</span><strong>{modelName || "-"}</strong><small>{lang === "ar" ? "سيستخدمه المحرك للتحليل" : "Used by the analysis engine"}</small></div>
-            <div className="model-info-card"><span className="model-card-label">{lang === "ar" ? "حالة الاعتماد" : "Credential status"}</span><strong>{configured ? (lang === "ar" ? "جاهز" : "Ready") : (lang === "ar" ? "غير مكتمل" : "Incomplete")}</strong><small>{provider === "ollama" ? (lang === "ar" ? "لا يحتاج مفتاح API" : "No API key required") : hasApiKey ? (lang === "ar" ? "مفتاح محفوظ" : "API key saved") : (lang === "ar" ? "أدخل المفتاح" : "Enter an API key")}</small></div>
+            <div className="model-info-card"><span className="model-card-label">{lang === "ar" ? "حالة الاعتماد" : "Credential status"}</span><strong>{configured ? (lang === "ar" ? "جاهز" : "Ready") : (lang === "ar" ? "غير مكتمل" : "Incomplete")}</strong><small>{["ollama", "custom_openai"].includes(provider) ? (lang === "ar" ? "مفتاح API اختياري" : "API key optional") : hasApiKey ? (lang === "ar" ? "مفتاح محفوظ" : "API key saved") : (lang === "ar" ? "أدخل المفتاح" : "Enter an API key")}</small></div>
             <div className="model-info-card"><span className="model-card-label">{lang === "ar" ? "النماذج المتاحة" : "Available models"}</span><strong>{availableModels.length}</strong><small>{lang === "ar" ? "من آخر اتصال ناجح" : "From the latest successful connection"}</small></div>
           </div>
           </div>
@@ -3034,6 +3091,7 @@ export default function Home() {
   const [token, setToken] = useState("");
   const [role, setRole] = useState<Role>("observer");
   const [page, setPage] = useState<Page>("overview");
+  const [setupRequired, setSetupRequired] = useState<boolean | null>(null);
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setToken(window.localStorage.getItem("signaldesk_token") ?? "");
@@ -3043,6 +3101,12 @@ export default function Home() {
       );
     }, 0);
     return () => window.clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    void fetch(`${API}/api/setup/status`, { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : Promise.reject())
+      .then((data: { needs_setup: boolean }) => setSetupRequired(data.needs_setup))
+      .catch(() => setSetupRequired(false));
   }, []);
   useEffect(() => {
     // request() clears localStorage and fires this on a 401; sync React state so polling stops.
@@ -3057,17 +3121,17 @@ export default function Home() {
     setToken(nextToken);
     setRole(normalized as Role);
   };
-  const signOut = () => {
-    window.localStorage.removeItem("signaldesk_token");
-    window.localStorage.removeItem("signaldesk_role");
-    setToken("");
-  };
   const toggle = () => {
     const next = lang === "ar" ? "en" : "ar";
     setLang(next);
     setApiLang(next);
     document.documentElement.lang = next;
     document.documentElement.dir = next === "ar" ? "rtl" : "ltr";
+  };
+  const signOut = () => {
+    window.localStorage.removeItem("signaldesk_token");
+    window.localStorage.removeItem("signaldesk_role");
+    setToken("");
   };
   const adminRequest = <T,>(path: string, init?: RequestInit) =>
     request<T>(path, token, init);
@@ -3092,6 +3156,8 @@ export default function Home() {
     const timer = window.setInterval(() => void load(), 10000);
     return () => window.clearInterval(timer);
   }, [token]);
+  if (setupRequired === null) return <main className="setup-loading" aria-live="polite">Loading SignalDesk...</main>;
+  if (setupRequired) return <SetupWizard lang={lang} toggleLanguage={toggle} onInitialized={onLogin} />;
   if (!token) return <Login lang={lang} onLogin={onLogin} toggle={toggle} />;
   const t = labels[lang];
   const allowedNavIds: readonly string[] = isRestricted

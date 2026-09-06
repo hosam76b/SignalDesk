@@ -251,7 +251,7 @@ setup.bat
    SCRAPING_ENABLED=true
    SCRAPING_INTERVAL_SECONDS=300
 
-   # AI Provider: ollama | google_ai_studio | openrouter
+   # AI Provider: ollama | google_ai_studio | openrouter | custom_openai
    AI_PROVIDER=ollama
    AI_MODEL=qwen2.5:7b
    OLLAMA_BASE_URL=http://localhost:11434
@@ -259,6 +259,8 @@ setup.bat
    # Cloud AI Keys (if using cloud providers)
    GOOGLE_AI_STUDIO_API_KEY=your_gemini_api_key_here
    OPENROUTER_API_KEY=your_openrouter_api_key_here
+   CUSTOM_OPENAI_BASE_URL=https://api.openai.com/v1
+   CUSTOM_OPENAI_API_KEY=your_custom_provider_key_here
 
    # Social Scraper Credentials (optional, as needed)
    APIFY_API_TOKEN=your_apify_token_here

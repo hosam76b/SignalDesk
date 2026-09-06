@@ -103,12 +103,26 @@ ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=60
 
 # External APIs
-GEMINI_API_KEY=your-gemini-api-key
+AI_PROVIDER=google_ai_studio
+AI_MODEL=gemini-2.0-flash
+GOOGLE_AI_STUDIO_BASE_URL=https://generativelanguage.googleapis.com/v1beta/models
+GOOGLE_AI_STUDIO_API_KEY=your-gemini-api-key
 REDDIT_CLIENT_ID=your-reddit-client-id
 REDDIT_CLIENT_SECRET=your-reddit-client-secret
 REDDIT_USER_AGENT=MediaMonitor/1.0
 YOUTUBE_API_KEY=your-youtube-api-key
 ```
+
+Supported AI providers:
+
+| Provider | `AI_PROVIDER` value | Base URL | API key variable |
+|----------|---------------------|----------|------------------|
+| Local Ollama | `ollama` | `http://localhost:11434` | Not required |
+| Google AI Studio | `google_ai_studio` | `https://generativelanguage.googleapis.com/v1beta/models` | `GOOGLE_AI_STUDIO_API_KEY` |
+| OpenRouter | `openrouter` | `https://openrouter.ai/api/v1` | `OPENROUTER_API_KEY` |
+| Custom OpenAI-compatible provider | `custom_openai` | Provider-specific `/v1` URL | `CUSTOM_OPENAI_API_KEY` if required |
+
+For a custom provider such as LM Studio, vLLM, LiteLLM, or a private gateway, use `AI_PROVIDER=custom_openai`, set `CUSTOM_OPENAI_BASE_URL` to the provider's `/v1` endpoint, and set `CUSTOM_OPENAI_MODEL` to the model name exposed by that provider.
 
 ### 2. (Optional) Set Up PostgreSQL Database
 

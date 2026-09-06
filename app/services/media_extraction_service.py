@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import logging
 import re
@@ -130,6 +131,34 @@ class MediaExtractionService:
             return cleaned if len(cleaned) >= 5 else None
         except Exception as exc:
             logger.debug("OCR extraction skipped/failed for local file %s: %s", file_path, exc)
+            return None
+
+    async def load_inline_image(self, image_ref: str, max_edge: int = 1024) -> dict[str, str] | None:
+        """Return a downscaled base64 JPEG payload for direct multimodal model input."""
+        if not image_ref:
+            return None
+
+        try:
+            if image_ref.startswith(("http://", "https://")):
+                async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
+                    resp = await client.get(image_ref)
+                    if resp.status_code != 200:
+                        return None
+                    source: bytes | str = resp.content
+            else:
+                source = image_ref
+
+            def _encode(raw: bytes | str) -> str:
+                img = Image.open(io.BytesIO(raw) if isinstance(raw, bytes) else raw).convert("RGB")
+                img.thumbnail((max_edge, max_edge))
+                buffer = io.BytesIO()
+                img.save(buffer, format="JPEG", quality=80)
+                return base64.b64encode(buffer.getvalue()).decode("ascii")
+
+            encoded = await asyncio.to_thread(_encode, source)
+            return {"mime_type": "image/jpeg", "data": encoded}
+        except Exception as exc:
+            logger.debug("Inline image load failed for %s: %s", image_ref[:80], exc)
             return None
 
     async def extract_video_transcript(self, url_or_id: str, platform: str = "") -> str | None:

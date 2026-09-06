@@ -6,7 +6,8 @@ Creates all tables and seeds initial data on first run.
 import logging
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
-from app.db.session import Base, engine, SessionLocal
+from app.db import session
+from app.db.session import Base, SessionLocal
 from app.models import AuditLog, Topic, User  # This import triggers all model registrations
 from app.core.security import hash_password
 
@@ -18,10 +19,10 @@ DEFAULT_TOPIC_DESCRIPTION = "المراقبة العامة"
 
 def migrate_topic_schema():
     """Add topic ownership to existing tables and backfill legacy rows."""
-    inspector = inspect(engine)
+    inspector = inspect(session.engine)
     existing_tables = set(inspector.get_table_names())
 
-    with engine.begin() as connection:
+    with session.engine.begin() as connection:
         if "topics" not in existing_tables:
             Base.metadata.create_all(bind=connection, tables=[Topic.__table__])
         topic_id = connection.execute(
@@ -90,7 +91,7 @@ def migrate_topic_schema():
             connection.execute(text("UPDATE users SET role = 'super_admin' WHERE role = 'admin'"))
             connection.execute(text("UPDATE users SET role = 'topic_monitor' WHERE role = 'analyst'"))
 
-        if engine.dialect.name == "postgresql":
+        if session.engine.dialect.name == "postgresql":
             for table in ("monitored_sources", "keywords", "posts"):
                 if table in existing_tables:
                     foreign_keys = inspect(connection).get_foreign_keys(table)
@@ -114,7 +115,7 @@ def init_db():
     
     Performs the following actions:
     1. Creates all database tables from SQLAlchemy models
-    2. Seeds default admin user if no users exist in database
+    2. Applies compatibility migrations without creating credentials
     
     This function should be called in the FastAPI startup event.
     
@@ -128,13 +129,13 @@ def init_db():
 
         # Step 1: Create all tables from models
         logger.info("🔄 Creating database tables...")
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=session.engine)
         logger.info("✅ Database tables created/verified successfully")
 
         migrate_topic_schema()
 
         # create_all does not add columns to tables that already exist.
-        if engine.dialect.name == "postgresql":
+        if session.engine.dialect.name == "postgresql":
             with engine.begin() as connection:
                 for column_name, column_type in (
                     ("title", "VARCHAR(1000)"),
@@ -146,35 +147,6 @@ def init_db():
                         f"ALTER TABLE posts ADD COLUMN IF NOT EXISTS {column_name} {column_type}"
                     ))
             logger.info("✅ Post export columns verified")
-
-        # Step 2: Seed default admin user if database is empty
-        logger.info("🔄 Checking for existing users...")
-        db = SessionLocal()
-        try:
-            existing_user_count = db.query(User).count()
-
-            if existing_user_count > 0:
-                logger.info(f"✅ Database already has {existing_user_count} user(s), skipping seeding")
-            else:
-                # Create default admin user
-                admin_user = User(
-                    email="admin@example.com",
-                    hashed_password=hash_password("admin123"),
-                    full_name="Administrator",
-                    role="super_admin",
-                    is_active=True
-                )
-
-                db.add(admin_user)
-                db.commit()
-                db.refresh(admin_user)
-
-                logger.info(f"✅ Default admin user created: {admin_user.email} (ID: {admin_user.id})")
-                logger.info("   ℹ️  Default credentials: email=admin@example.com, password=admin123")
-                logger.info("   ⚠️  IMPORTANT: Change these credentials in production!")
-
-        finally:
-            db.close()
 
         logger.info("=" * 60)
         logger.info("✅ Database Initialization Complete")

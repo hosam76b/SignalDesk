@@ -10,12 +10,15 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.topic import PromptTemplate, Topic
+from app.models.keyword import Keyword
+from app.models.post import Post
 from app.models.user import User
 from app.core.deps import get_current_user, get_current_admin_user, get_current_topic_user
 from app.services.ai_orchestrator import ai_orchestrator
 from app.services.audit_service import record_audit
 from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
 from app.services.knowledge_context import get_topic_knowledge_context
+from app.services.media_processor import build_combined_text
 
 router = APIRouter(prefix="/api/ai", tags=["AI Analysis"])
 
@@ -28,6 +31,7 @@ class AnalysisResponse(BaseModel):
     analyzed: int
     updated: int
     failed: int
+    risk_flagged: int = 0
     errors: list[dict[str, Any]]
     duration_seconds: float
 
@@ -212,10 +216,49 @@ def create_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Ses
 def test_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_topic_user)) -> dict[str, Any]:
     if current_user.role not in {"super_admin", "topic_manager"}:
         raise HTTPException(status_code=403, detail="Prompt testing requires topic manager privileges")
+    topic = db.query(Topic).filter(Topic.id == topic_id).first()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    recent_posts = (
+        db.query(Post)
+        .filter(Post.topic_id == topic_id)
+        .order_by(Post.scraped_at.desc(), Post.id.desc())
+        .limit(20)
+        .all()
+    )
+    post_samples: list[str] = []
+    for post in recent_posts:
+        combined_text = build_combined_text(post)
+        if not combined_text:
+            continue
+        post_samples.append(
+            "\n".join([
+                f"- ID: {post.id}",
+                f"  Platform: {post.platform}",
+                f"  Author: {post.author}",
+                f"  Published: {post.published_at.isoformat() if post.published_at else 'unknown'}",
+                f"  Title: {post.title or ''}",
+                f"  Content: {combined_text[:1200]}",
+            ])
+        )
+        if len(post_samples) == 5:
+            break
+
+    if not post_samples:
+        raise HTTPException(status_code=400, detail="No non-empty posts are available for this topic test")
+
+    keyword_rows = (
+        db.query(Keyword)
+        .filter(Keyword.topic_id == topic_id, Keyword.is_active.is_(True))
+        .order_by(Keyword.id.asc())
+        .limit(50)
+        .all()
+    )
     context = {
-        "topic_name": db.query(Topic).filter(Topic.id == topic_id).first().title if db.query(Topic).filter(Topic.id == topic_id).first() else "Topic",
-        "posts_content": "Sample post text to simulate analysis.",
-        "keywords": "risk, threat, escalation",
+        "topic_name": topic.title,
+        "posts_content": "\n\n".join(post_samples),
+        "keywords": ", ".join(keyword.word_or_phrase for keyword in keyword_rows) or "No active keywords configured.",
         "time_range": "last 24 hours",
         "knowledge_context": get_topic_knowledge_context(db, topic_id) or "No knowledge base documents for this topic.",
     }
@@ -224,7 +267,19 @@ def test_prompt_template(topic_id: int, payload: PromptTemplateCreate, db: Sessi
     rendered = payload.template
     for key, value in context.items():
         rendered = rendered.replace(f"{{{key}}}", str(value))
+    if "{posts_content}" not in payload.template:
+        rendered = (
+            f"{rendered}\n\n"
+            "[Actual monitored content for this prompt test]\n"
+            f"Topic: {context['topic_name']}\n"
+            f"Time range: {context['time_range']}\n"
+            f"Keywords: {context['keywords']}\n\n"
+            f"Posts:\n{context['posts_content']}\n\n"
+            f"Knowledge context:\n{context['knowledge_context']}"
+        )
     summary = analyze_post_content(rendered)
+    if not summary.get("success"):
+        raise HTTPException(status_code=502, detail=summary.get("error") or "AI analysis failed")
     status = get_ai_status()
     status["provider"] = provider
     status["model"] = model_name
