@@ -38,6 +38,7 @@ from app.api import posts as posts_routes
 from app.api import ingestion as ingestion_routes
 from app.api import spider as spider_routes
 from app.api import setup as setup_routes
+from app.api import system as system_routes
 from config import settings
 
 # Import all models to register them with SQLAlchemy
@@ -181,6 +182,7 @@ app.include_router(posts_routes.router)
 app.include_router(ingestion_routes.router)
 app.include_router(spider_routes.router)
 app.include_router(setup_routes.router)
+app.include_router(system_routes.router)
 
 
 def custom_openapi() -> dict:

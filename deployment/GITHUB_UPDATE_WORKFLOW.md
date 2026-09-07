@@ -26,3 +26,5 @@ To use another repository or branch:
 ```
 
 The external machine must have Git, Python, Node.js/npm, an existing virtual environment, and the `SignalDeskServer` Windows service installed. GitHub Actions cannot directly update an external machine without credentials and a deployment agent; the updater is the controlled deployment step for those machines.
+
+The application also checks `GET /api/system/update-status` every 15 minutes after login. When the installed commit differs from the configured GitHub branch, the application shell displays an update notification with a link to GitHub. Set `UPDATE_CHECK_ENABLED=false` to disable this check.

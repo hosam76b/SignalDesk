@@ -9,6 +9,7 @@ import {
   ArrowUpRight,
   Check,
   Database,
+  ExternalLink,
   Edit3,
   Eye,
   EyeOff,
@@ -92,6 +93,13 @@ type Stats = {
 type Role = "super_admin" | "topic_manager" | "analyst" | "observer" | "topic_admin" | "topic_monitor";
 type Topic = { id: number; title: string; description?: string | null };
 type AiStatus = { enabled: boolean; mode: string; provider: string; model?: string | null; available_models?: string[] };
+type UpdateStatus = {
+  update_available: boolean;
+  current_version: string;
+  latest_version: string | null;
+  release_url: string | null;
+  error?: string | null;
+};
 type PromptTemplate = { id: number; topic_id: number; name: string; template: string; variables?: string | null; provider?: string; model_name?: string; is_active: boolean; created_by_id?: number | null };
 type AlertItem = {
   id: string;
@@ -3140,6 +3148,8 @@ export default function Home() {
   const [pendingCount, setPendingCount] = useState(0);
   const [quickIngestOpen, setQuickIngestOpen] = useState(false);
   const [spiderStatus, setSpiderStatus] = useState<SpiderActiveStatus | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
   useEffect(() => {
     if (!isManager || !token) return;
     void get<ApprovalsSummary>("/api/v1/topics/1/approvals", token)
@@ -3154,6 +3164,18 @@ export default function Home() {
         .catch(() => setSpiderStatus(null));
     void load();
     const timer = window.setInterval(() => void load(), 10000);
+    return () => window.clearInterval(timer);
+  }, [token]);
+  useEffect(() => {
+    if (!token) return;
+    const loadUpdateStatus = () => {
+      void fetch(`${API}/api/system/update-status`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : Promise.reject())
+        .then((data: UpdateStatus) => setUpdateStatus(data))
+        .catch(() => setUpdateStatus(null));
+    };
+    loadUpdateStatus();
+    const timer = window.setInterval(loadUpdateStatus, 900000);
     return () => window.clearInterval(timer);
   }, [token]);
   if (setupRequired === null) return <main className="setup-loading" aria-live="polite">Loading SignalDesk...</main>;
@@ -3247,6 +3269,29 @@ export default function Home() {
             <button className="top-avatar" style={{ border: 0 }} onClick={() => setPage("profile")} title={t.profile}>AM</button>
           </div>
         </header>
+        {updateStatus?.update_available && !updateDismissed && (
+          <div className="update-banner" role="status">
+            <div>
+              <strong>{lang === "ar" ? "يتوفر تحديث جديد لـ SignalDesk" : "A new SignalDesk update is available"}</strong>
+              <span>
+                {lang === "ar" ? "الإصدار الحالي" : "Current"} {updateStatus.current_version.slice(0, 7)}
+                {"  |  "}
+                {lang === "ar" ? "الجديد" : "Latest"} {updateStatus.latest_version?.slice(0, 7)}
+              </span>
+            </div>
+            <div className="update-banner-actions">
+              {updateStatus.release_url && (
+                <a href={updateStatus.release_url} target="_blank" rel="noreferrer" className="update-link">
+                  <ExternalLink size={15} />
+                  {lang === "ar" ? "عرض التحديث" : "View update"}
+                </a>
+              )}
+              <button type="button" className="icon-button" onClick={() => setUpdateDismissed(true)} aria-label={lang === "ar" ? "إغلاق إشعار التحديث" : "Dismiss update notification"}>
+                <X size={17} />
+              </button>
+            </div>
+          </div>
+        )}
         {page === "overview" ? (
           role === "super_admin" || role === "topic_manager" ? (
             <div className="dashboard-overview-layout">

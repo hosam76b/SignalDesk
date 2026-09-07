@@ -90,6 +90,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     app_name: str = "SignalDesk"
     app_version: str = "1.0.0"
+    update_check_enabled: bool = True
+    update_repository: str = "hosam76b/SignalDesk"
+    update_branch: str = "main"
+    update_check_interval_seconds: int = 900
     api_docs_enabled: bool = True
     api_openapi_enabled: bool = True
     api_docs_url: str = "/docs"
