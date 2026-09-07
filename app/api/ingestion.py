@@ -21,6 +21,7 @@ from app.core.deps import get_current_user, normalize_role
 from app.db.session import get_db
 from app.models import MonitoredSource, Post, Topic, User, UserTopic
 from app.services.audit_service import record_audit
+from app.services.ai_orchestrator import auto_analyze_posts
 from app.services.media_extraction_service import media_extractor
 from app.services.media_processor import process_post_media, schedule_media_processing
 from app.services.scraper_orchestrator import ScraperOrchestrator
@@ -159,6 +160,7 @@ async def quick_ingest_url(
     else:
         for post in created_posts:
             await process_post_media(post.id)
+    auto_analyze_posts(db, [post.id for post in created_posts])
 
     return QuickIngestResult(saved=saved_count, platform=platform, post_ids=[post.id for post in created_posts])
 
@@ -237,6 +239,7 @@ async def quick_ingest_file(
         new_post.media_status = "failed"
     db.commit()
     db.refresh(new_post)
+    auto_analyze_posts(db, [new_post.id])
 
     return QuickIngestFileResult(
         post_id=new_post.id,

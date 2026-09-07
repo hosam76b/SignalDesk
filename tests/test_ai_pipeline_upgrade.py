@@ -500,6 +500,30 @@ def test_batch_records_failures_without_aborting(db: Session, monkeypatch):
     assert result["errors"]
 
 
+def test_batch_persists_sentiment_fallback_when_ai_is_unavailable(db: Session, monkeypatch):
+    topic = _seed_posts(db, 1)
+    post = db.query(Post).filter(Post.topic_id == topic.id).first()
+    post.content = "good success خبر إيجابي"
+    db.commit()
+
+    async def unavailable_analyze(_text: str, _images=None):
+        return orchestrator_module.fallback_result("AI engine is disabled or unavailable")
+
+    monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", unavailable_analyze)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+
+    result = orchestrator_module.process_posts_by_ids(db, [post.id])
+    db.refresh(post)
+
+    assert result["processed"] == 1
+    assert result["failed"] == 1
+    assert result["updated"] == 1
+    assert post.sentiment == "positive"
+    assert post.sentiment_score > 0
+    assert post.severity_level == "low"
+    assert "تحليل المشاعر" in post.ai_summary
+
+
 def test_batch_uses_active_topic_prompt_and_injects_post_content(db: Session, monkeypatch):
     topic = _seed_posts(db, 1)
     post = db.query(Post).filter(Post.topic_id == topic.id).first()

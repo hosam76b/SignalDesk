@@ -104,6 +104,12 @@ def _render_analysis_prompt(db: Session, post: Post, combined_text: str, knowled
     return rendered
 
 
+def _sentiment_fallback_summary(analysis: dict[str, Any]) -> str:
+    if analysis.get("risk_signals"):
+        return str(analysis.get("ai_summary") or "رصد آلي لمؤشرات خطورة بانتظار التحليل الكامل")
+    return "تم تحليل المشاعر محلياً؛ لم يتوفر مزود ذكاء اصطناعي لإنتاج ملخص متقدم."
+
+
 async def _analyze_tasks(tasks: list[_AnalysisTask]) -> dict[int, dict[str, Any]]:
     """Run provider calls concurrently under a bounded semaphore."""
     limit = max(1, int(getattr(settings, "ai_max_concurrency", 5) or 5))
@@ -132,7 +138,6 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
     if batch_size < 1:
         raise ValueError("batch_size must be greater than zero")
 
-    started_at = datetime.now(timezone.utc)
     posts = (
         db.query(Post)
         .filter(
@@ -144,6 +149,30 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
         .limit(batch_size)
         .all()
     )
+    return _process_posts(db, posts)
+
+
+def process_posts_by_ids(db: Session, post_ids: list[int]) -> dict[str, Any]:
+    """Analyze the specified posts, preserving ingestion order as much as possible."""
+    clean_ids = list(dict.fromkeys(int(post_id) for post_id in post_ids if post_id))
+    if not clean_ids:
+        return _process_posts(db, [])
+    posts = db.query(Post).filter(Post.id.in_(clean_ids)).all()
+    posts_by_id = {post.id: post for post in posts}
+    return _process_posts(db, [posts_by_id[post_id] for post_id in clean_ids if post_id in posts_by_id])
+
+
+def auto_analyze_posts(db: Session, post_ids: list[int]) -> dict[str, Any]:
+    """Best-effort automatic analysis for newly ingested posts."""
+    try:
+        return process_posts_by_ids(db, post_ids)
+    except Exception as exc:
+        logger.exception("Automatic post analysis failed: %s", exc)
+        return {"success": False, "processed": 0, "analyzed": 0, "updated": 0, "failed": len(post_ids), "errors": [str(exc)]}
+
+
+def _process_posts(db: Session, posts: list[Post]) -> dict[str, Any]:
+    started_at = datetime.now(timezone.utc)
     result: dict[str, Any] = {
         "success": True,
         "processed": len(posts),
@@ -194,7 +223,8 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
     # Phase 2: fan out the provider calls concurrently, then persist on this thread.
     analyses = run_sync(_analyze_tasks(tasks)) if tasks else {}
     text_by_post = {task.post_id: task.combined_text for task in tasks}
-    has_pending_writes = False
+    has_pending_writes = bool(posts)
+    sentiment_fallbacks = 0
 
     for post_id, analysis in analyses.items():
         post = posts_by_id.get(post_id)
@@ -208,13 +238,15 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
         if not analysis["success"]:
             result["failed"] += 1
             result["errors"].append({"post_id": post_id, "error": analysis["error"]})
+            post.violence_category = analysis.get("violence_category")
+            post.severity_level = analysis.get("severity_level") or "low"
+            post.ai_summary = _sentiment_fallback_summary(analysis)
+            post.raw_ai_response = analysis.get("raw_response") or {"error": analysis.get("error")}
+            post.is_flagged = bool(analysis.get("is_flagged"))
             if analysis.get("risk_signals"):
-                # Persist the danger flags but leave ai_summary empty so the post is retried.
-                post.violence_category = analysis["violence_category"]
-                post.is_flagged = True
                 post.is_dangerous = True
                 result["risk_flagged"] += 1
-                has_pending_writes = True
+            sentiment_fallbacks += 1
             continue
 
         post.violence_category = analysis["violence_category"]
@@ -232,7 +264,7 @@ def process_unanalyzed_posts(db: Session, batch_size: int = 50) -> dict[str, Any
     if result["analyzed"] or skipped_empty or has_pending_writes:
         try:
             db.commit()
-            result["updated"] = result["analyzed"] + skipped_empty
+            result["updated"] = result["analyzed"] + skipped_empty + sentiment_fallbacks
         except Exception as exc:
             db.rollback()
             result["success"] = False

@@ -14,6 +14,7 @@ from app.models.source import MonitoredSource
 from app.models.keyword import Keyword
 from app.models.post import Post
 from app.models.topic import Topic
+from app.services.ai_orchestrator import auto_analyze_posts
 from app.services.scraper_service import ScraperService
 from app.services.webhook_service import dispatch_post_ingested
 from app.services.media_processor import schedule_media_processing
@@ -301,6 +302,7 @@ class ScraperOrchestrator:
             try:
                 db.commit()
                 logger.info(f"💾 Saved {saved_count} new posts to database")
+                auto_analyze_posts(db, [post.id for post in new_posts])
                 # OCR/audio-transcript extraction runs as a per-post background task so
                 # it never blocks the scraping cycle or HTTP workers.
                 for post in new_posts:

@@ -8,10 +8,12 @@ from app.core.security import create_access_token, decode_token
 from app.api.scraper import ScraperStatusResponse
 from app.services.apify_service import ApifyService
 from app.services.playwright_service import PlaywrightService
+import app.services.scraper_orchestrator as scraper_orchestrator_module
 from app.services.scraper_orchestrator import ScraperOrchestrator
 from app.services.scraper_service import ScraperService
 from app.services.rss_service import RSSService
 from app.services.youtube_service import YouTubeService
+from app.models import MonitoredSource
 
 
 def test_security_token_round_trip():
@@ -160,3 +162,29 @@ def test_orchestrator_all_topics_runs_each_topic(db, seeded_db, monkeypatch):
     assert result["total_sources"] == 2
     assert len(seen) == 2
     assert {keywords for _, keywords in seen} == {("alpha", "bravo")}
+
+
+def test_save_posts_triggers_automatic_analysis(db, seeded_db, monkeypatch):
+    orchestrator = ScraperOrchestrator()
+    source = db.query(MonitoredSource).filter(MonitoredSource.name == "A Feed").first()
+    captured: dict[str, list[int]] = {}
+
+    def fake_auto_analyze(_db, post_ids):
+        captured["post_ids"] = post_ids
+        return {"success": True, "processed": len(post_ids), "analyzed": len(post_ids), "updated": len(post_ids)}
+
+    monkeypatch.setattr(scraper_orchestrator_module, "auto_analyze_posts", fake_auto_analyze)
+    monkeypatch.setattr(scraper_orchestrator_module, "schedule_media_processing", lambda *_args, **_kwargs: None)
+
+    saved = orchestrator._save_posts(db, source, [{
+        "external_id": "auto-analysis-1",
+        "platform": "rss",
+        "author": "tester",
+        "title": "Auto analysis",
+        "content": "good success news",
+        "post_url": "https://example.com/auto-analysis-1",
+        "published_at": datetime.now(timezone.utc),
+    }], seeded_db["topic_a"].id)
+
+    assert saved == 1
+    assert captured["post_ids"]

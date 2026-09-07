@@ -516,6 +516,11 @@ class AIAnalysisService:
             "format": "json",
             "stream": False,
         }
+        client = self._ollama_client()
+        if client is not None and hasattr(client, "chat"):
+            data = await asyncio.to_thread(client.chat, **body)
+            return _extract_json_object(data.get("message", {}).get("content", ""))
+
         async with httpx.AsyncClient(timeout=self._timeout, trust_env=False) as client:
             response = await client.post(f"{base_url}/api/chat", headers=headers, json=body)
             if response.status_code == 401:
