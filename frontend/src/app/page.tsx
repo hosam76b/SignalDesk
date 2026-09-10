@@ -2494,7 +2494,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState("rss");
   const [value, setValue] = useState("");
-  const [actorId, setActorId] = useState("");
   const [topics, setTopics] = useState<Topic[]>([]);
   const [topicId, setTopicId] = useState<number | null>(null);
   const [error, setError] = useState("");
@@ -2503,9 +2502,12 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     ["rss", "RSS"],
     ["telegram", lang === "ar" ? "تيليجرام" : "Telegram"],
     ["facebook", lang === "ar" ? "فيسبوك" : "Facebook"],
+    ["instagram", lang === "ar" ? "إنستجرام" : "Instagram"],
     ["reddit", lang === "ar" ? "ريديت" : "Reddit"],
     ["youtube", lang === "ar" ? "يوتيوب" : "YouTube"],
     ["x", "X (Twitter)"],
+    ["tiktok", "TikTok"],
+    ["threads", "Threads"],
   ] as const;
   const pageSize = 5;
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
@@ -2542,7 +2544,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     setName("");
     setPlatform("rss");
     setValue("");
-    setActorId("");
     setError("");
     setNotice("");
     setFormOpen(true);
@@ -2552,7 +2553,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
     setName(item.name ?? "");
     setPlatform(item.platform ?? "rss");
     setValue(item.url_or_handle ?? item.word_or_phrase ?? "");
-    setActorId(item.apify_actor_id ?? "");
     setError("");
     setNotice("");
     setFormOpen(true);
@@ -2583,7 +2583,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
             platform,
             url_or_handle: value,
             target_type: "url",
-            apify_actor_id: actorId || null,
             is_active: true,
           }
         : { word_or_phrase: value, category: "general", is_active: true };
@@ -2598,7 +2597,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
       setName("");
       setPlatform("rss");
       setValue("");
-      setActorId("");
       setEditingItem(null);
       setFormOpen(false);
       load();
@@ -2754,14 +2752,6 @@ function Monitoring({ token, lang }: { token: string; lang: Lang }) {
                       </option>
                     ))}
                   </select>
-                </label>
-                <label>
-                  Apify Actor ID
-                  <input
-                    value={actorId}
-                    onChange={(event) => setActorId(event.target.value)}
-                    placeholder={lang === "ar" ? "اختياري" : "Optional"}
-                  />
                 </label>
               </>
             )}

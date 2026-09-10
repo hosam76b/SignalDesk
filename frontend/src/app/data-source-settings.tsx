@@ -9,7 +9,11 @@ type SourceSettings = {
   metaGraphApiVersion: string;
   metaAppId: string;
   apifyToken: string;
-  apifyActorId: string;
+  apifyFacebookActorId: string;
+  apifyInstagramActorId: string;
+  apifyXActorId: string;
+  apifyTikTokActorId: string;
+  apifyThreadsActorId: string;
   youtubeApiKey: string;
   redditClientId: string;
   redditClientSecret: string;
@@ -20,6 +24,10 @@ type SourceSettings = {
   youtubeEnabled: boolean;
   redditEnabled: boolean;
   facebookEnabled: boolean;
+  instagramEnabled: boolean;
+  xEnabled: boolean;
+  tiktokEnabled: boolean;
+  threadsEnabled: boolean;
 }
 
 const defaults: SourceSettings = {
@@ -27,7 +35,11 @@ const defaults: SourceSettings = {
   metaGraphApiVersion: 'v21.0',
   metaAppId: '',
   apifyToken: '',
-  apifyActorId: 'apify/facebook-posts-scraper',
+  apifyFacebookActorId: '',
+  apifyInstagramActorId: '',
+  apifyXActorId: '',
+  apifyTikTokActorId: '',
+  apifyThreadsActorId: '',
   youtubeApiKey: '',
   redditClientId: '',
   redditClientSecret: '',
@@ -38,6 +50,10 @@ const defaults: SourceSettings = {
   youtubeEnabled: true,
   redditEnabled: true,
   facebookEnabled: true,
+  instagramEnabled: true,
+  xEnabled: true,
+  tiktokEnabled: true,
+  threadsEnabled: true,
 }
 
 export function DataSourceSettings({ lang, onClose }: { lang: Lang; onClose: () => void }) {
@@ -105,7 +121,16 @@ export function DataSourceSettings({ lang, onClose }: { lang: Lang; onClose: () 
         <label>Meta Graph API Version<input value={settings.metaGraphApiVersion} onChange={event => update('metaGraphApiVersion', event.target.value)}/></label>
         <label>Meta App ID<input value={settings.metaAppId} onChange={event => update('metaAppId', event.target.value)}/></label>
         {secret('apifyToken', 'Apify API Token')}
-        <label>Apify Actor ID<input value={settings.apifyActorId} onChange={event => update('apifyActorId', event.target.value)}/></label>
+        <label>Facebook Actor ID<input value={settings.apifyFacebookActorId} onChange={event => update('apifyFacebookActorId', event.target.value)} placeholder={lang === 'ar' ? 'اختياري' : 'Optional'} /></label>
+        <label>Instagram Actor ID<input value={settings.apifyInstagramActorId} onChange={event => update('apifyInstagramActorId', event.target.value)} placeholder={lang === 'ar' ? 'اختياري' : 'Optional'} /></label>
+        <label>X / Twitter Actor ID<input value={settings.apifyXActorId} onChange={event => update('apifyXActorId', event.target.value)} placeholder={lang === 'ar' ? 'اختياري' : 'Optional'} /></label>
+        <label>TikTok Actor ID<input value={settings.apifyTikTokActorId} onChange={event => update('apifyTikTokActorId', event.target.value)} placeholder={lang === 'ar' ? 'اختياري' : 'Optional'} /></label>
+        <label>Threads Actor ID<input value={settings.apifyThreadsActorId} onChange={event => update('apifyThreadsActorId', event.target.value)} placeholder={lang === 'ar' ? 'اختياري' : 'Optional'} /></label>
+        <p className="settings-note">
+          {lang === 'ar'
+            ? 'يتم تحديد Actor المناسب لكل منصة تلقائيًا عند إضافة المصدر، لذلك لا حاجة لإدخاله في كل مرة.'
+            : 'The correct actor for each platform is selected automatically when the source is added, so there is no need to enter it every time.'}
+        </p>
         {secret('youtubeApiKey', 'YouTube API Key')}
         {secret('redditClientId', 'Reddit Client ID')}
         {secret('redditClientSecret', 'Reddit Client Secret')}
@@ -115,6 +140,10 @@ export function DataSourceSettings({ lang, onClose }: { lang: Lang; onClose: () 
           <label className="setting-toggle"><span>YouTube</span><input type="checkbox" checked={settings.youtubeEnabled} onChange={event => update('youtubeEnabled', event.target.checked)}/></label>
           <label className="setting-toggle"><span>Reddit</span><input type="checkbox" checked={settings.redditEnabled} onChange={event => update('redditEnabled', event.target.checked)}/></label>
           <label className="setting-toggle"><span>Facebook / Meta</span><input type="checkbox" checked={settings.facebookEnabled} onChange={event => update('facebookEnabled', event.target.checked)}/></label>
+          <label className="setting-toggle"><span>Instagram</span><input type="checkbox" checked={settings.instagramEnabled} onChange={event => update('instagramEnabled', event.target.checked)}/></label>
+          <label className="setting-toggle"><span>X (Twitter)</span><input type="checkbox" checked={settings.xEnabled} onChange={event => update('xEnabled', event.target.checked)}/></label>
+          <label className="setting-toggle"><span>TikTok</span><input type="checkbox" checked={settings.tiktokEnabled} onChange={event => update('tiktokEnabled', event.target.checked)}/></label>
+          <label className="setting-toggle"><span>Threads</span><input type="checkbox" checked={settings.threadsEnabled} onChange={event => update('threadsEnabled', event.target.checked)}/></label>
         </div>
         <div className="modal-actions">
           <button type="button" className="secondary-button" onClick={onClose}>{lang === 'ar' ? 'إلغاء' : 'Cancel'}</button>

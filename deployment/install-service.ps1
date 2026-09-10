@@ -25,6 +25,7 @@ $python = $virtualEnvironment
 $logs = Join-Path $projectRoot "logs"
 $frontend = Join-Path $projectRoot "frontend"
 $trayLauncher = Join-Path $projectRoot "deployment\start_tray.vbs"
+$trayIcon = Join-Path $projectRoot "assets\signaldesk-monitor.ico"
 
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Run this script from an elevated PowerShell window."
@@ -84,6 +85,7 @@ $trayShortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk Monitor.ln
 $trayShortcut.TargetPath = "wscript.exe"
 $trayShortcut.Arguments = "`"$trayLauncher`""
 $trayShortcut.WorkingDirectory = $projectRoot
+$trayShortcut.IconLocation = "$trayIcon,0"
 $trayShortcut.Save()
 
 $startup = [Environment]::GetFolderPath("Startup")
@@ -91,6 +93,7 @@ $startupTrayShortcut = $shell.CreateShortcut((Join-Path $startup "SignalDesk Mon
 $startupTrayShortcut.TargetPath = "wscript.exe"
 $startupTrayShortcut.Arguments = "`"$trayLauncher`""
 $startupTrayShortcut.WorkingDirectory = $projectRoot
+$startupTrayShortcut.IconLocation = "$trayIcon,0"
 $startupTrayShortcut.Save()
 
 Write-Host "SignalDeskServer is installed and running. Open http://localhost:8000 or http://<SERVER_IP>:8000"

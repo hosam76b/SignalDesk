@@ -145,10 +145,11 @@ SignalDesk/
 ├── 📝 .env                              Environment Variables
 ├── 🔨 setup.bat                         Windows Setup Script
 │
-├── 📚 SETUP_GUIDE.md                    Initial Setup (Existing)
-├── 📚 DATABASE_GUIDE.md                 ✅ Database Documentation
-├── 📚 STEP2_COMPLETION.md               ✅ Step 2 Summary
-├── 📚 STEP2_QUICK_START.md              ✅ Testing Guide
+├── docs/                                Project documentation
+│   ├── SETUP_GUIDE.md                   Initial Setup (Existing)
+│   └── DATABASE_GUIDE.md                ✅ Database Documentation
+│   ├── STEP2_COMPLETION.md              ✅ Step 2 Summary
+│   └── STEP2_QUICK_START.md             ✅ Testing Guide
 │
 └── 📁 .venv/                            Virtual Environment
 

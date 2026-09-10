@@ -46,7 +46,6 @@ export function TopicManagement({
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
   const [platform, setPlatform] = useState("rss");
-  const [actorId, setActorId] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const canManage = role === "super_admin" || role === "topic_admin" || role === "topic_manager";
@@ -116,7 +115,6 @@ export function TopicManagement({
             platform,
             url_or_handle: value.trim(),
             target_type: "url",
-            apify_actor_id: actorId.trim() || null,
             is_active: true,
           }
         : {
@@ -158,7 +156,6 @@ export function TopicManagement({
     setName(item?.name ?? "");
     setPlatform(item?.platform ?? "rss");
     setValue(item?.url_or_handle ?? item?.word_or_phrase ?? "");
-    setActorId(item?.apify_actor_id ?? "");
     setError("");
     setNotice("");
     setItemModal(true);
@@ -401,17 +398,13 @@ export function TopicManagement({
                     <option value="rss">RSS</option>
                     <option value="telegram">Telegram</option>
                     <option value="facebook">Facebook</option>
+                    <option value="instagram">Instagram</option>
                     <option value="reddit">Reddit</option>
                     <option value="youtube">YouTube</option>
                     <option value="x">X (Twitter)</option>
+                    <option value="tiktok">TikTok</option>
+                    <option value="threads">Threads</option>
                   </select>
-                </label>
-                <label>
-                  Apify Actor ID
-                  <input
-                    value={actorId}
-                    onChange={(event) => setActorId(event.target.value)}
-                  />
                 </label>
               </>
             )}
