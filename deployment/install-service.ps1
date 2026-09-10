@@ -22,9 +22,9 @@ if (-not $virtualEnvironment) {
     $virtualEnvironment = Join-Path $projectRoot ".venv\Scripts\python.exe"
 }
 $python = $virtualEnvironment
-$pythonWindowed = if ($python) { Join-Path (Split-Path $python) "pythonw.exe" } else { $null }
 $logs = Join-Path $projectRoot "logs"
 $frontend = Join-Path $projectRoot "frontend"
+$trayLauncher = Join-Path $projectRoot "deployment\start_tray.vbs"
 
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw "Run this script from an elevated PowerShell window."
@@ -81,9 +81,16 @@ $shortcut.WorkingDirectory = $projectRoot
 $shortcut.Save()
 
 $trayShortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk Monitor.lnk"))
-$trayShortcut.TargetPath = $pythonWindowed
-$trayShortcut.Arguments = "`"$projectRoot\deployment\system_tray.py`""
+$trayShortcut.TargetPath = "wscript.exe"
+$trayShortcut.Arguments = "`"$trayLauncher`""
 $trayShortcut.WorkingDirectory = $projectRoot
 $trayShortcut.Save()
+
+$startup = [Environment]::GetFolderPath("Startup")
+$startupTrayShortcut = $shell.CreateShortcut((Join-Path $startup "SignalDesk Monitor.lnk"))
+$startupTrayShortcut.TargetPath = "wscript.exe"
+$startupTrayShortcut.Arguments = "`"$trayLauncher`""
+$startupTrayShortcut.WorkingDirectory = $projectRoot
+$startupTrayShortcut.Save()
 
 Write-Host "SignalDeskServer is installed and running. Open http://localhost:8000 or http://<SERVER_IP>:8000"

@@ -9,6 +9,7 @@ import time
 import urllib.request
 import webbrowser
 from pathlib import Path
+from typing import Literal
 
 import pystray
 from PIL import Image, ImageDraw
@@ -16,20 +17,32 @@ from PIL import Image, ImageDraw
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SERVICE_NAME = "SignalDeskServer"
 LOCAL_URL = "http://127.0.0.1:8000"
+ServiceState = Literal["RUNNING", "STOPPED", "PENDING", "MISSING", "UNKNOWN"]
 
 
-def service_is_healthy() -> bool:
-    try:
-        with urllib.request.urlopen(f"{LOCAL_URL}/health", timeout=3) as response:
-            return response.status == 200
-    except OSError:
-        return False
+def service_state() -> ServiceState:
+    result = subprocess.run(
+        ["sc.exe", "query", SERVICE_NAME],
+        capture_output=True,
+        check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+        text=True,
+    )
+    if result.returncode == 1060:
+        return "MISSING"
+    if result.returncode != 0:
+        return "UNKNOWN"
+    if "RUNNING" in result.stdout:
+        return "RUNNING"
+    if "STOPPED" in result.stdout:
+        return "STOPPED"
+    return "PENDING"
 
 
-def status_icon(healthy: bool) -> Image.Image:
+def status_icon(running: bool) -> Image.Image:
     image = Image.new("RGBA", (64, 64), (0, 0, 0, 0))
     drawing = ImageDraw.Draw(image)
-    drawing.ellipse((8, 8, 56, 56), fill="#35a980" if healthy else "#d95d52")
+    drawing.ellipse((8, 8, 56, 56), fill="#35a980" if running else "#d95d52")
     drawing.ellipse((20, 20, 44, 44), fill="#ffffff")
     return image
 
@@ -56,9 +69,10 @@ def copy_lan_url(icon: pystray.Icon, _item: pystray.MenuItem) -> None:
 
 
 def refresh(icon: pystray.Icon) -> None:
-    healthy = service_is_healthy()
-    icon.icon = status_icon(healthy)
-    icon.title = f"SignalDesk: {'healthy' if healthy else 'service unavailable'}"
+    state = service_state()
+    icon.icon = status_icon(state == "RUNNING")
+    icon.title = f"SignalDesk service: {state.lower()}"
+    icon.update_menu()
 
 
 def run_monitor(icon: pystray.Icon) -> None:
@@ -67,9 +81,34 @@ def run_monitor(icon: pystray.Icon) -> None:
         time.sleep(15)
 
 
-def restart_service(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
-    subprocess.run(["sc.exe", "stop", SERVICE_NAME], check=False, creationflags=subprocess.CREATE_NO_WINDOW)
-    subprocess.run(["sc.exe", "start", SERVICE_NAME], check=False, creationflags=subprocess.CREATE_NO_WINDOW)
+def change_service_state(icon: pystray.Icon, command: str, action: str) -> None:
+    result = subprocess.run(
+        ["sc.exe", command, SERVICE_NAME],
+        capture_output=True,
+        check=False,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+        text=True,
+    )
+    if result.returncode == 0:
+        icon.notify(f"Service {action} requested.", "SignalDesk")
+    else:
+        detail = (result.stderr or result.stdout).strip()
+        icon.notify(f"Could not {action} service: {detail or 'Windows rejected the request.'}", "SignalDesk")
+    refresh(icon)
+
+
+def start_service(icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+    change_service_state(icon, "start", "start")
+
+
+def stop_service(icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+    change_service_state(icon, "stop", "stop")
+
+
+def restart_service(icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+    change_service_state(icon, "stop", "stop")
+    time.sleep(1)
+    change_service_state(icon, "start", "start")
 
 
 def open_logs(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
@@ -81,10 +120,13 @@ def quit_monitor(icon: pystray.Icon, _item: pystray.MenuItem) -> None:
 
 
 def main() -> None:
-    icon = pystray.Icon("SignalDesk", status_icon(service_is_healthy()), "SignalDesk")
+    initial_state = service_state()
+    icon = pystray.Icon("SignalDesk", status_icon(initial_state == "RUNNING"), "SignalDesk")
     icon.menu = pystray.Menu(
         pystray.MenuItem("Open SignalDesk", lambda _icon, _item: webbrowser.open(LOCAL_URL)),
-        pystray.MenuItem("Restart service", restart_service),
+        pystray.MenuItem("Start service", start_service, enabled=lambda _item: service_state() == "STOPPED"),
+        pystray.MenuItem("Stop service", stop_service, enabled=lambda _item: service_state() == "RUNNING"),
+        pystray.MenuItem("Restart service", restart_service, enabled=lambda _item: service_state() == "RUNNING"),
         pystray.MenuItem("View logs", open_logs),
         pystray.MenuItem("Copy LAN URL", copy_lan_url),
         pystray.Menu.SEPARATOR,

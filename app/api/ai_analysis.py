@@ -14,7 +14,7 @@ from app.models.keyword import Keyword
 from app.models.post import Post
 from app.models.user import User
 from app.core.deps import get_current_user, get_current_admin_user, get_current_topic_user
-from app.services.ai_orchestrator import ai_orchestrator
+from app.services.ai_orchestrator import ai_orchestrator, process_posts_by_ids
 from app.services.audit_service import record_audit
 from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
 from app.services.knowledge_context import get_topic_knowledge_context
@@ -148,6 +148,19 @@ def analyze_pending_posts(
 ) -> AnalysisResponse:
     """Analyze one bounded batch of posts missing AI evaluation."""
     result = ai_orchestrator.process_unanalyzed_posts(db, batch_size=batch_size)
+    return AnalysisResponse(**result)
+
+
+@router.post("/analyze/{post_id}", response_model=AnalysisResponse)
+def analyze_post(
+    post_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin_user),
+) -> AnalysisResponse:
+    """Analyze one selected post."""
+    if db.query(Post.id).filter(Post.id == post_id).first() is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    result = process_posts_by_ids(db, [post_id])
     return AnalysisResponse(**result)
 
 

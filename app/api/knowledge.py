@@ -1,5 +1,6 @@
 """Knowledge base document management endpoints."""
 
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
@@ -17,6 +18,23 @@ from app.services.knowledge_context import index_document, invalidate_document
 router = APIRouter(prefix="/api/knowledge", tags=["Knowledge Base"])
 UPLOAD_DIR = Path(__file__).resolve().parents[2] / "storage" / "knowledge"
 ALLOWED_TYPES = {".txt", ".md", ".csv", ".json", ".pdf"}
+
+
+def _extract_text(suffix: str, content: bytes) -> str:
+    if suffix != ".pdf":
+        return content.decode("utf-8", errors="replace")[:500_000]
+
+    try:
+        from pypdf import PdfReader
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail="PDF text extraction is unavailable; install pypdf") from exc
+
+    try:
+        reader = PdfReader(BytesIO(content))
+        text = "\n".join(page.extract_text() or "" for page in reader.pages)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to extract text from PDF: {exc}") from exc
+    return text.strip()[:500_000]
 
 
 class KnowledgeDocumentRead(BaseModel):
@@ -58,12 +76,12 @@ async def upload_document(topic_id: int, title: str = Form(...), tags: str | Non
     content = await file.read()
     if len(content) > 20 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="File is too large; maximum size is 20 MB")
+    extracted_text = _extract_text(suffix, content)
+    if not extracted_text:
+        raise HTTPException(status_code=400, detail="The document contains no extractable text")
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_path = UPLOAD_DIR / f"{uuid4().hex}{suffix}"
     stored_path.write_bytes(content)
-    extracted_text = None
-    if suffix != ".pdf":
-        extracted_text = content.decode("utf-8", errors="replace")[:500_000]
     document = KnowledgeDocument(topic_id=topic_id, created_by_id=current_user.id, title=title.strip(), filename=file.filename or stored_path.name, file_type=file.content_type or suffix, file_path=str(stored_path), extracted_text=extracted_text, tags=tags)
     db.add(document)
     db.commit()

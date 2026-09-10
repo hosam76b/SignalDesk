@@ -27,6 +27,7 @@ import {
   Settings2,
   Share2,
   ShieldCheck,
+  Sparkles,
   Star,
   Trash2,
   UserCog,
@@ -1481,6 +1482,8 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
   const [filtered, setFiltered] = useState<Post[]>([]);
   const [viewMode, setViewMode] = useState<"table" | "kanban">("table");
   const [feedPage, setFeedPage] = useState(1);
+  const [analyzingId, setAnalyzingId] = useState<number | null>(null);
+  const [analysisError, setAnalysisError] = useState("");
   const feedPageSize = 6;
   const feedPageCount = Math.max(1, Math.ceil(filtered.length / feedPageSize));
   const visibleFeedPosts = filtered.slice(
@@ -1570,6 +1573,25 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
       return next;
     });
   const clearSelection = () => setCheckedIds(new Set());
+  const analyzePost = async (postId: number) => {
+    if (analyzingId !== null) return;
+    setAnalyzingId(postId);
+    setAnalysisError("");
+    try {
+      const result = await request<{ processed: number; analyzed: number; failed: number }>(`/api/ai/analyze/${postId}`, token, {
+        method: "POST",
+      });
+      if (result.failed) {
+        setAnalysisError(lang === "ar" ? "تعذر تحليل هذا الخبر." : "Unable to analyze this news item.");
+      } else {
+        await get<Post[]>("/api/data/posts/latest?limit=500", token).then(setPosts);
+      }
+    } catch (cause) {
+      setAnalysisError(cause instanceof Error ? cause.message : (lang === "ar" ? "تعذر تحليل هذا الخبر." : "Unable to analyze this news item."));
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
   const exportSelected = async (format: "pdf" | "csv" | "json" | "xlsx") => {
     if (checkedIds.size === 0 || exporting) return;
     setExporting(format);
@@ -1603,6 +1625,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
           <p className="subhead">{lang === "ar" ? `${filtered.length} خبر مطابق للفلاتر الحالية.` : `${filtered.length} items match the current filters.`}</p>
         </div>
       </div>
+      {analysisError && <div className="data-error">{analysisError}</div>}
       <div className="feed-filters">
         <label className="search-field">
           <Search size={17} />
@@ -1701,6 +1724,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
                 <th>{lang === "ar" ? "الكاتب" : "Author"}</th>
                 <th>{lang === "ar" ? "الخطورة" : "Severity"}</th>
                 <th>{lang === "ar" ? "التاريخ" : "Date"}</th>
+                <th>{lang === "ar" ? "إجراء" : "Action"}</th>
               </tr>
             </thead>
             <tbody>
@@ -1714,6 +1738,13 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
                   <td>{post.author}</td>
                   <td><span className={`badge badge-${post.severity_level || "neutral"}`}>{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span></td>
                   <td>{new Date(post.scraped_at).toLocaleString(lang === "ar" ? "ar-EG" : "en-US")}</td>
+                  <td onClick={(event) => event.stopPropagation()}>
+                    {!post.severity_level && (
+                      <button type="button" className="icon-button" title={lang === "ar" ? "تحليل هذا الخبر" : "Analyze this news item"} aria-label={lang === "ar" ? "تحليل هذا الخبر" : "Analyze this news item"} disabled={analyzingId !== null} onClick={() => void analyzePost(post.id)}>
+                        {analyzingId === post.id ? <span className="loading-spinner" /> : <Sparkles size={15} />}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1727,7 +1758,7 @@ function Feed({ token, lang }: { token: string; lang: Lang }) {
               <article className={`kanban-card severity-${severity} ${checkedIds.has(post.id) ? "selected" : ""}`} key={post.id}>
                 <div className="kanban-card-top"><span>{post.platform}</span><label onClick={(event) => event.stopPropagation()}><input type="checkbox" checked={checkedIds.has(post.id)} onChange={() => toggleChecked(post.id)} aria-label={lang === "ar" ? "تحديد هذا الخبر للتصدير" : "Select this news item for export"} /></label></div>
                 <button type="button" onClick={() => setSelected(post)}><strong>{toPlainText(post.title, 90) || toPlainText(post.content, 90)}</strong><p>{toPlainText(post.content, 180)}</p></button>
-                <div className="kanban-card-footer"><small>{post.author} · {new Date(post.scraped_at).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US")}</small><span className="severity-label">{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span></div>
+                <div className="kanban-card-footer"><small>{post.author} · {new Date(post.scraped_at).toLocaleDateString(lang === "ar" ? "ar-EG" : "en-US")}</small><span className="severity-label">{post.severity_level || (lang === "ar" ? "غير محلل" : "Unanalyzed")}</span>{!post.severity_level && <button type="button" className="icon-button" title={lang === "ar" ? "تحليل هذا الخبر" : "Analyze this news item"} aria-label={lang === "ar" ? "تحليل هذا الخبر" : "Analyze this news item"} disabled={analyzingId !== null} onClick={(event) => { event.stopPropagation(); void analyzePost(post.id); }}>{analyzingId === post.id ? <span className="loading-spinner" /> : <Sparkles size={15} />}</button>}</div>
               </article>
             );
           })}

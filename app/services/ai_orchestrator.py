@@ -91,16 +91,19 @@ def _render_analysis_prompt(db: Session, post: Post, combined_text: str, knowled
     for key, value in context.items():
         rendered = rendered.replace(f"{{{key}}}", str(value))
 
-    if "{posts_content}" not in prompt_template.template and "{post_content}" not in prompt_template.template:
+    has_post_placeholder = "{posts_content}" in prompt_template.template or "{post_content}" in prompt_template.template
+    has_knowledge_placeholder = "{knowledge_context}" in prompt_template.template
+    if not has_post_placeholder:
         rendered = (
             f"{rendered}\n\n"
             "[Actual monitored content for this analysis]\n"
             f"Topic: {context['topic_name']}\n"
             f"Time range: {context['time_range']}\n"
             f"Keywords: {context['keywords']}\n\n"
-            f"Post:\n{post_context}\n\n"
-            f"Knowledge context:\n{context['knowledge_context']}"
+            f"Post:\n{post_context}"
         )
+    if not has_knowledge_placeholder:
+        rendered = f"{rendered}\n\nKnowledge context:\n{context['knowledge_context']}"
     return rendered
 
 

@@ -567,6 +567,38 @@ def test_batch_uses_active_topic_prompt_and_injects_post_content(db: Session, mo
     assert "خبر عن محاولة تهريب أسلحة عبر الحدود" in captured["text"]
 
 
+def test_batch_always_injects_knowledge_context_when_template_has_post_content(db: Session, monkeypatch):
+    topic = _seed_posts(db, 1)
+    post = db.query(Post).filter(Post.topic_id == topic.id).first()
+    post.content = "خبر عن تهريب أسلحة عبر الحدود"
+    db.add(KnowledgeDocument(
+        topic_id=topic.id, title="مرجع الحدود", filename="reference.txt", file_type="text/plain",
+        file_path="/tmp/reference.txt", extracted_text="تعريف مرجعي لتهريب الأسلحة عبر الحدود.",
+    ))
+    db.add(PromptTemplate(
+        topic_id=topic.id, name="قالب المنشورات", template="حلل: {posts_content}",
+        provider="ollama", model_name="qwen2.5:7b", is_active=1,
+    ))
+    db.commit()
+    captured: dict[str, str] = {}
+
+    async def fake_analyze(text: str, _images=None):
+        captured["text"] = text
+        return {
+            "success": True, "provider": "ollama", "violence_category": None,
+            "severity_level": "low", "ai_summary": "ملخص", "is_flagged": False,
+            "detected_entities": [], "sentiment_score": 0, "raw_response": {}, "error": None,
+        }
+
+    monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", fake_analyze)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+
+    result = orchestrator_module.process_unanalyzed_posts(db, batch_size=1)
+
+    assert result["analyzed"] == 1
+    assert "تعريف مرجعي لتهريب الأسلحة عبر الحدود" in captured["text"]
+
+
 def test_empty_batch_is_a_no_op(db: Session):
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=10)
     assert result["processed"] == 0
