@@ -1,170 +1,266 @@
-# دليل تشغيل SignalDesk
+# دليل التنصيب والتشغيل الكامل على Windows
 
-## قبل البدء
+هذا الدليل موجه لمستخدم جديد يريد تشغيل SignalDesk على جهازه الشخصي. اتبع الخطوات بالترتيب. المسار الموصى به لجهاز شخصي هو SQLite مع خدمة Windows.
 
-نفذ الأوامر من مجلد المشروع `SignalDesk`. تحتاج إلى Python وNode.js مرة واحدة فقط لتثبيت النظام.
+## التثبيت التلقائي باستخدام المعالج
 
-للتشغيل الدائم كخدمة، استخدم Python `3.10` أو `3.11` أو `3.12` وNode.js `20 LTS`. ثبّت Git فقط عندما تريد تنزيل النظام من GitHub أو إنشاء حزمة نقل.
-
-## تشغيل سريع للتجربة
-
-افتح PowerShell داخل مجلد المشروع، ثم نفذ:
+بعد الحصول على ملفات المعالج، افتح PowerShell بصلاحية Administrator من أي مجلد وشغّل المعالج باستخدام مساره. لا تحتاج إلى تنفيذ `Set-Location` إلى مسار ثابت:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-npm.cmd --prefix .\frontend run build
-python -m uvicorn main:app --host 127.0.0.1 --port 8000
-```
-
-أبق نافذة PowerShell مفتوحة، ثم افتح هذا العنوان في المتصفح على جهاز السيرفر:
-
-```text
-http://127.0.0.1:8000
-```
-
-لإيقاف التشغيل التجريبي، ارجع إلى نافذة PowerShell واضغط `Ctrl+C`.
-
-## التشغيل الأول فقط
-
-إذا لم يكن للنظام مشرف سابق، ستظهر شاشة الإعداد تلقائياً:
-
-1. اختر `SQLite محلية` واترك المسار `media_monitor.db` كما هو، ثم اختر `اختبار الاتصال`.
-2. أدخل اسم المشرف والبريد أو اسم المستخدم وكلمة مرور تحتوي 8 محارف على الأقل وحروفاً وأرقاماً.
-3. اختر مزود الذكاء الاصطناعي. يمكن ترك مفتاح API فارغاً وإضافته لاحقاً.
-4. اختر `تهيئة وتشغيل المنظومة`. سيتم تسجيل دخول المشرف تلقائياً.
-
-لا تظهر شاشة الإعداد إذا كانت القاعدة تحتوي على مشرف سابق. هذا صحيح لحماية النظام من إنشاء مشرف ثانٍ دون تصريح.
-
-## التثبيت كخدمة ويندوز دائمة
-
-استخدم هذه الطريقة لجهاز السيرفر الذي يجب أن يبقى يعمل بعد تسجيل الخروج أو إعادة تشغيل Windows.
-
-1. افتح **PowerShell بصلاحية مسؤول**: ابحث عن PowerShell، ثم اختر `Run as administrator`.
-2. انتقل إلى مجلد المشروع:
-
-```powershell
-Set-Location "C:\Users\Hosam\Documents\SignalDesk"
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
+& "D:\Downloads\SignalDesk\deployment\setup-wizard.ps1"
 ```
 
-3. شغّل المثبت:
+ستظهر نافذة لاختيار مكان المشروع. اختر مجلداً يحتوي نسخة SignalDesk، أو اختر مجلداً فارغاً ليقوم المعالج بتنزيل المستودع داخله. يمكنك أيضاً تمرير المكان مباشرة دون نافذة:
 
 ```powershell
-.\deployment\install-service.ps1
+& "D:\Downloads\SignalDesk\deployment\setup-wizard.ps1" -ProjectRoot "D:\Apps\SignalDesk"
 ```
 
-المثبت يجهز `pip` ويثبت المتطلبات تلقائياً، ثم ينشئ خدمة Windows باسم `SignalDeskServer`، ويبني الواجهة، ويفتح المنفذ `8000` في جدار الحماية، ويضيف اختصارين على سطح المكتب.
+إذا اخترت مجلداً فارغاً، يحتاج المعالج إلى Git واتصال بالإنترنت، ثم ينفذ التنزيل قبل بقية الخطوات.
 
-إذا لم توجد `.venv` أو `venv` على جهاز جديد، ينشئ المثبت بيئة `.venv` تلقائياً.
+ينفذ المعالج تلقائياً الخطوات التالية بالترتيب:
 
-## تنزيل النظام من GitHub إلى جهاز سيرفر جديد
+1. يفحص وجود Python وNode.js وnpm.
+2. ينشئ `.env` ويضبط SQLite ومفتاح أمان عشوائياً في التثبيت الجديد.
+3. ينشئ `.venv` ويثبت حزم Python ومتصفح Playwright.
+4. يثبت حزم الواجهة ويبني `frontend\out`.
+5. يثبت خدمة Windows باسم `SignalDeskServer` ويفتح المنفذ `8000`.
+6. يفحص `/health` ثم يفتح المتصفح.
 
-نفذ الخطوات التالية مرة واحدة على جهاز السيرفر. افتح PowerShell بصلاحية مسؤول:
+بعد ذلك أكمل شاشة `إعداد SignalDesk` التي تظهر في المتصفح: اختبر SQLite، أنشئ حساب المشرف، اختر مزود الذكاء الاصطناعي، ثم اضغط `تهيئة وتشغيل المنظومة`. لا يحذف المعالج ملف `.env` الموجود ولا يستبدل إعداداتك الحالية إلا بقيمة SQLite الأساسية.
+
+## 1. تثبيت البرامج المطلوبة
+
+ثبّت البرامج التالية:
+
+1. Python `3.10` أو `3.11` أو `3.12`، مع تفعيل `Add Python to PATH` أثناء التثبيت.
+2. Node.js `20 LTS`، ويتضمن `npm`.
+3. Git for Windows لتنزيل المشروع من GitHub.
+
+اختبر التثبيت من PowerShell:
+
+```powershell
+python --version
+node --version
+npm --version
+git --version
+```
+
+يجب أن تظهر أرقام إصدارات للأدوات الأربعة.
+
+## 2. تنزيل المشروع
 
 ```powershell
 Set-Location "C:\"
 git clone https://github.com/hosam76b/SignalDesk.git SignalDesk
 Set-Location "C:\SignalDesk"
+```
+
+سيظهر مجلد `C:\SignalDesk`، ويحتوي على مجلدات مثل `app` و`frontend` و`deployment` و`migrations` و`tests`.
+
+## 3. إنشاء ملف الإعداد
+
+```powershell
+Copy-Item .env.example .env
+notepad .env
+```
+
+ضع في الملف على الأقل:
+
+```env
+DB_URL=sqlite:///./media_monitor.db
+SECRET_KEY=ضع-هنا-مفتاحا-عشوائيا-طويلا
+AI_PROVIDER=ollama
+SCRAPING_ENABLED=true
+```
+
+يمكن ترك مفاتيح Telegram وReddit وYouTube وApify فارغة في البداية. لإنشاء مفتاح عشوائي:
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+انسخ الناتج إلى `SECRET_KEY`.
+
+## 4. تجهيز Python
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+python -m playwright install chromium
+```
+
+إذا رفض PowerShell تشغيل البيئة الافتراضية:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\.venv\Scripts\Activate.ps1
+```
+
+يجب أن يظهر `(.venv)` في بداية سطر PowerShell.
+
+## 5. تجهيز الواجهة
+
+```powershell
+Set-Location .\frontend
+npm install
+Set-Location ..
+npm.cmd --prefix .\frontend run build
+```
+
+بعد نجاح البناء سيظهر غالباً مجلد `frontend\out`.
+
+## 6. تثبيت SignalDesk كخدمة Windows
+
+افتح PowerShell بصلاحية Administrator، ثم نفذ:
+
+```powershell
+Set-Location "C:\SignalDesk"
 Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 .\deployment\install-service.ps1
 ```
 
-بعد ظهور رسالة نجاح، افتح `http://127.0.0.1:8000`. في أول تشغيل تظهر شاشة الإعداد لإنشاء المشرف وإعداد قاعدة بيانات جديدة.
+ينشئ المثبت خدمة `SignalDeskServer`، ويبني الواجهة، ويفتح المنفذ `8000` في جدار الحماية، وينشئ اختصاري `SignalDesk` و`SignalDesk Monitor` على سطح المكتب. كما ينشئ `.venv` تلقائياً إذا لم تكن موجودة.
 
-لتحديث نسخة مثبتة من GitHub مستقبلاً، أوقف الخدمة ثم نفذ:
+## 7. فتح النظام لأول مرة
 
-```powershell
-Set-Location "C:\SignalDesk"
-Stop-Service SignalDeskServer
-git pull origin main
-.\deployment\install-service.ps1
-```
+افتح `http://127.0.0.1:8000` أو اضغط اختصار `SignalDesk`.
 
-## إنشاء حزمة للنقل دون GitHub
+ستظهر شاشة `إعداد SignalDesk` من أربع خطوات:
 
-هذه الحزمة تحتوي على المصدر البرمجي فقط، ولا تتضمن الأسرار أو قاعدة البيانات. قبل إنشائها احفظ تعديلاتك وارفعها إلى GitHub أو نفذ commit محلياً، ثم شغّل:
+1. اختر `SQLite محلية`، واترك المسار `media_monitor.db`، ثم اضغط `اختبار الاتصال`.
+2. أدخل الاسم والبريد أو اسم المستخدم وكلمة مرور من 8 محارف على الأقل تحتوي حروفاً وأرقاماً.
+3. اختر مزود الذكاء الاصطناعي. يمكن ترك مفتاح API فارغاً وإضافته لاحقاً.
+4. راجع الإعدادات واضغط `تهيئة وتشغيل المنظومة`.
 
-```powershell
-Set-Location "C:\Users\Hosam\Documents\SignalDesk"
-.\deployment\package-release.ps1
-```
+سيتم إنشاء الجداول وحساب المشرف وموضوع `General Monitoring`، ثم تسجيل الدخول تلقائياً. سيظهر ملف `media_monitor.db` في جذر المشروع.
 
-ستجد ملف ZIP في مجلد `releases`. انقله إلى جهاز السيرفر، فك ضغطه مثلاً في `C:\SignalDesk`، ثم نفذ خطوات `التثبيت كخدمة ويندوز دائمة` من داخل ذلك المجلد.
+لا تظهر شاشة الإعداد مرة أخرى إذا كانت القاعدة تحتوي على مشرف.
 
-## نقل البيانات إلى جهاز جديد
+## 8. تسجيل الدخول بعد ذلك
 
-قاعدة البيانات لا تدخل GitHub ولا حزمة المصدر. انقلها يدوياً فقط عندما تريد الاحتفاظ بالمستخدمين والمواضيع والمنشورات:
+افتح `http://127.0.0.1:8000` واستخدم بيانات المشرف التي أنشأتها. لا تحتاج إلى تشغيل `npm run dev` في التشغيل الدائم؛ فالواجهة المبنية يقدمها Backend على المنفذ `8000`.
 
-1. أوقف الخدمة على الجهاز القديم: `Stop-Service SignalDeskServer`.
-2. انسخ الملفات التالية إلى مكان آمن: `.env` و`media_monitor.db` ومجلد `media_uploads` إن كانت الوسائط مطلوبة.
-3. ثبّت SignalDesk على الجهاز الجديد أولاً، ثم أوقف خدمته.
-4. ضع الملفات المنسوخة في جذر المشروع الجديد واستبدل الملفات الموجودة عند الطلب.
-5. شغّل الخدمة: `Start-Service SignalDeskServer`.
-
-لا ترفع `.env` أو `media_monitor.db` أو مجلد `media_uploads` إلى GitHub، لأنها قد تتضمن مفاتيح وصول وبيانات تشغيلية.
-
-## فتح النظام بعد التثبيت
-
-على جهاز السيرفر، افتح اختصار `SignalDesk` على سطح المكتب أو استخدم:
-
-```text
-http://127.0.0.1:8000
-```
-
-من جهاز آخر متصل بالشبكة نفسها، استخدم:
-
-```text
-http://عنوان-IP-للسيرفر:8000
-```
-
-لمعرفة عنوان السيرفر، نفذ على جهاز السيرفر:
-
-```powershell
-Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" } | Select-Object -ExpandProperty IPAddress
-```
-
-مثال: `http://192.168.1.50:8000`.
-
-## التحقق من حالة الخدمة
-
-نفذ في PowerShell:
+## 9. التحقق من الخدمة
 
 ```powershell
 Get-Service SignalDeskServer
 Invoke-RestMethod http://127.0.0.1:8000/health
 ```
 
-يجب أن تكون حالة الخدمة `Running`، وأن يرجع الفحص `healthy`.
+يجب أن تكون الحالة `Running` وأن يعيد الفحص `healthy`.
 
-## السجلات وحل التوقف
+## 10. ما سيظهر على الجهاز
 
-بعد أي تعديل في الكود أو ملف `.env`، لا تشغل نسخة يدوية منفصلة على المنفذ 8000. أعد تحميل خدمة Windows نفسها من PowerShell بصلاحية Administrator:
+بعد التثبيت ستجد داخل `C:\SignalDesk`:
+
+```text
+.venv\              بيئة Python
+.env                إعدادات النظام والمفاتيح
+media_monitor.db    قاعدة SQLite
+frontend\out\       نسخة الواجهة المبنية
+media_uploads\      الوسائط المرفوعة
+logs\               سجلات الخدمة
+tools\nssm\         أداة تشغيل الخدمة
+```
+
+وعلى سطح المكتب:
+
+```text
+SignalDesk.lnk
+SignalDesk Monitor.lnk
+```
+
+وفي خدمات Windows ستجد `SignalDeskServer`، وتبدأ تلقائياً بعد إعادة تشغيل الجهاز.
+
+## 11. أيقونة المراقبة
+
+تظهر أيقونة SignalDesk في منطقة الإشعارات بجانب الساعة. إذا لم تظهر:
 
 ```powershell
-Set-Location "C:\Users\Hosam\Documents\SignalDesk"
+wscript.exe .\deployment\start_tray.vbs
+```
+
+منها يمكن فتح النظام أو بدء الخدمة أو إيقافها أو إعادة تشغيلها أو فتح مجلد `logs`.
+
+## 12. الوصول من جهاز آخر
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" } | Select-Object -ExpandProperty IPAddress
+```
+
+إذا كان العنوان `192.168.1.50` افتح من جهاز آخر على الشبكة نفسها:
+
+```text
+http://192.168.1.50:8000
+```
+
+## 13. إعداد Ollama محلياً
+
+ثبّت Ollama ثم نفذ:
+
+```powershell
+ollama pull qwen2.5:7b
+ollama list
+```
+
+يستخدم SignalDesk افتراضياً `http://localhost:11434`. عند استخدام Ollama المحلي تبقى بيانات التحليل على الجهاز.
+
+## 14. إعداد مزود سحابي
+
+لـ Google AI Studio:
+
+```env
+AI_PROVIDER=google_ai_studio
+GOOGLE_AI_STUDIO_API_KEY=ضع-مفتاح-Gemini-هنا
+```
+
+أو لـ OpenRouter:
+
+```env
+AI_PROVIDER=openrouter
+OPENROUTER_API_KEY=ضع-المفتاح-هنا
+```
+
+بعد تعديل `.env` أعد تشغيل الخدمة من PowerShell بصلاحيات Administrator:
+
+```powershell
 .\deployment\restart-service.ps1
 ```
 
-استخدم اختصار `SignalDesk Monitor` أو افتح الملفات التالية:
+## 15. السجلات وحل المشكلات
+
+السجلات موجودة في:
 
 ```text
-logs\service_stdout.log
-logs\service_stderr.log
+C:\SignalDesk\logs\service_stdout.log
+C:\SignalDesk\logs\service_stderr.log
 ```
 
-لإعادة تشغيل الخدمة:
+بعد تعديل الكود أو `.env` استخدم:
 
 ```powershell
-Restart-Service SignalDeskServer
+.\deployment\restart-service.ps1
+```
+
+لا تشغل نسخة Uvicorn يدوية على المنفذ `8000` أثناء تشغيل الخدمة.
+
+## 16. الروابط المفيدة
+
+```text
+الواجهة:       http://127.0.0.1:8000
+فحص الصحة:     http://127.0.0.1:8000/health
+توثيق API:     http://127.0.0.1:8000/docs
+توثيق ReDoc:   http://127.0.0.1:8000/redoc
 ```
 
 ## إزالة الخدمة
-
-افتح PowerShell بصلاحية مسؤول من مجلد المشروع، ثم نفذ:
 
 ```powershell
 .\deployment\uninstall-service.ps1
 ```
 
-يزيل هذا الأمر خدمة Windows وقاعدة جدار الحماية. لا يحذف قاعدة البيانات أو المنشورات.
+يزيل الأمر خدمة Windows وقاعدة الجدار الناري، لكنه لا يحذف قاعدة البيانات أو المنشورات.

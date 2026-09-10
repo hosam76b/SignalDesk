@@ -79,6 +79,7 @@ $shortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk.lnk"))
 $shortcut.TargetPath = "msedge.exe"
 $shortcut.Arguments = "--app=http://127.0.0.1:8000 --window-size=1440,900"
 $shortcut.WorkingDirectory = $projectRoot
+$shortcut.IconLocation = "$trayIcon,0"
 $shortcut.Save()
 
 $trayShortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk Monitor.lnk"))
