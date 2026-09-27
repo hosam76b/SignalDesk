@@ -18,6 +18,13 @@ htmlcov/
 *.sqlite
 *.db
 *.db.backup
+# SQLite WAL sidecars. These appear next to the database once journal_mode=WAL
+# is active and are recreated on every run; committing them risks checking a
+# stale copy back in, which silently discards recent writes on checkout.
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
 
 # Quick Ingest uploads
 media_uploads/

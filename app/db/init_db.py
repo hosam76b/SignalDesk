@@ -17,12 +17,52 @@ DEFAULT_TOPIC_TITLE = "General Monitoring"
 DEFAULT_TOPIC_DESCRIPTION = "المراقبة العامة"
 
 
+class _EngineProxy:
+    """Live handle on ``session.engine``, resolved on every attribute access.
+
+    ``app.db.session.configure_database()`` rebinds ``session.engine`` during
+    first-run setup. An Engine imported *by value* would keep pointing at the
+    pre-setup database, so these helpers would create, migrate, and then drop
+    tables in the wrong place. Forwarding instead of capturing means one
+    rebind is picked up everywhere.
+    """
+
+    def __getattr__(self, name: str):
+        return getattr(session.engine, name)
+
+    def unwrap(self):
+        """The real Engine, for APIs that reject a proxy (e.g. ``bind=``)."""
+        return session.engine
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return f"<live engine proxy -> {session.engine!r}>"
+
+
+#: Module-level handle on the engine these helpers act on. It is also the patch
+#: point tests use to redirect initialization at a throwaway database, which is
+#: why the helpers resolve it through ``_active_engine()`` instead of reading
+#: ``session.engine`` directly.
+engine = _EngineProxy()
+
+
+def _active_engine():
+    """Return a real ``Engine`` for the initialization helpers.
+
+    Reads the module-level ``engine`` hook via ``globals()`` so a test's
+    ``monkeypatch.setattr(init_db, "engine", other_engine)`` is honoured, while
+    production unwraps the proxy to whatever ``session.engine`` currently is.
+    """
+    candidate = globals()["engine"]
+    return candidate.unwrap() if isinstance(candidate, _EngineProxy) else candidate
+
+
 def migrate_topic_schema():
     """Add topic ownership to existing tables and backfill legacy rows."""
-    inspector = inspect(session.engine)
+    bind = _active_engine()
+    inspector = inspect(bind)
     existing_tables = set(inspector.get_table_names())
 
-    with session.engine.begin() as connection:
+    with bind.begin() as connection:
         if "topics" not in existing_tables:
             Base.metadata.create_all(bind=connection, tables=[Topic.__table__])
         topic_id = connection.execute(
@@ -74,6 +114,120 @@ def migrate_topic_schema():
                     column_type = {"is_important": "BOOLEAN DEFAULT FALSE", "is_dangerous": "BOOLEAN DEFAULT FALSE", "content_fingerprint": "VARCHAR(32)", "sentiment": "VARCHAR(20)", "sentiment_score": "INTEGER", "entities": "JSON"}[column_name]
                     connection.execute(text(f"ALTER TABLE posts ADD COLUMN {column_name} {column_type}"))
 
+            # AI analysis lifecycle columns. create_all() never adds columns to
+            # an existing table, and the ORM selects every mapped column on
+            # every Post query -- so without these an upgraded install fails
+            # immediately with "no such column: posts.ai_status".
+            for column_name, column_type in (
+                ("ai_status", "VARCHAR(20) NOT NULL DEFAULT 'pending'"),
+                ("ai_analyzed_at", "TIMESTAMP"),
+            ):
+                if column_name not in post_columns:
+                    connection.execute(text(f"ALTER TABLE posts ADD COLUMN {column_name} {column_type}"))
+
+            # create_all() never widens an existing table, so the ALTERs above
+            # just added columns: re-read the column set before anything below
+            # references it. A genuinely legacy table may still be missing
+            # columns this install never had, and this self-heal must degrade
+            # rather than abort the whole startup with "no such column".
+            post_columns = {
+                column["name"] for column in inspect(connection).get_columns("posts")
+            }
+
+            # Replace the '' sentinel with NULL. The old pending-post predicate
+            # was `ai_summary IS NULL OR ai_summary = ''`, and that second
+            # disjunct cannot use any index on ai_status -- it forced the full
+            # table scan the audit measured at 99 ms and growing linearly.
+            if "ai_summary" in post_columns:
+                connection.execute(
+                    text("UPDATE posts SET ai_summary = NULL WHERE ai_summary = ''")
+                )
+            if "severity_level" in post_columns:
+                connection.execute(
+                    text("UPDATE posts SET severity_level = NULL WHERE severity_level = ''")
+                )
+
+            if "ai_status" in post_columns:
+                # Backfill, mirroring migration 0009. Without this, every
+                # historical post defaults to 'pending' and the worker is handed
+                # the entire archive instead of just the unanalysed subset.
+                already_analyzed = " OR ".join(
+                    f"{name} IS NOT NULL"
+                    for name in ("ai_summary", "severity_level")
+                    if name in post_columns
+                )
+                if already_analyzed:
+                    analyzed_at = (
+                        "COALESCE(scraped_at, CURRENT_TIMESTAMP)"
+                        if "scraped_at" in post_columns
+                        else "CURRENT_TIMESTAMP"
+                    )
+                    connection.execute(
+                        text(
+                            f"UPDATE posts SET ai_status = 'done', "
+                            f"ai_analyzed_at = {analyzed_at} "
+                            f"WHERE ({already_analyzed}) AND ai_status = 'pending'"
+                        )
+                    )
+                # Rows with no text can never be analyzed; 'pending' would make
+                # the worker claim them on every cycle forever.
+                if "content" in post_columns:
+                    connection.execute(
+                        text(
+                            "UPDATE posts SET ai_status = 'skipped' "
+                            "WHERE (content IS NULL OR TRIM(content) = '') "
+                            "AND ai_status = 'pending'"
+                        )
+                    )
+
+            is_sqlite = connection.dialect.name == "sqlite"
+            post_indexes = {
+                index["name"] for index in inspect(connection).get_indexes("posts")
+            }
+            for index_name, index_columns in (
+                ("ix_posts_flagged", ("is_flagged", "id")),
+                ("ix_posts_severity", ("severity_level", "id")),
+                ("ix_posts_dedup_external", ("source_id", "topic_id", "external_id")),
+                ("ix_posts_dedup_url", ("source_id", "topic_id", "post_url")),
+                ("ix_posts_dedup_fingerprint", ("source_id", "topic_id", "content_fingerprint")),
+            ):
+                if index_name in post_indexes:
+                    continue
+                missing = [c for c in index_columns if c not in post_columns]
+                if missing:
+                    # An index is an optimization, not a correctness
+                    # requirement, so a legacy table simply goes without it.
+                    logger.debug(
+                        "Skipping index %s; posts is missing column(s) %s",
+                        index_name,
+                        ", ".join(missing),
+                    )
+                    continue
+                connection.execute(
+                    text(f"CREATE INDEX {index_name} ON posts ({', '.join(index_columns)})")
+                )
+
+            # The claim query filters on `ai_status IN ('pending','failed')`, so
+            # the partial index must cover both branches. An index narrowed to
+            # `= 'pending'` is unusable for the claim and the query falls back to
+            # a full table scan.
+            if "ix_posts_ai_queue" not in post_indexes:
+                if is_sqlite:
+                    connection.execute(
+                        text(
+                            "CREATE INDEX ix_posts_ai_queue ON posts (id) "
+                            "WHERE ai_status IN ('pending', 'failed')"
+                        )
+                    )
+                else:
+                    connection.execute(
+                        text("CREATE INDEX ix_posts_ai_queue ON posts (id)")
+                    )
+            if "ix_posts_ai_pending" in post_indexes:
+                # Superseded by ix_posts_ai_queue; leaving it in place wastes
+                # write amplification on every status transition.
+                connection.execute(text("DROP INDEX ix_posts_ai_pending"))
+
         if "prompt_templates" in existing_tables:
             prompt_template_columns = {column["name"] for column in inspect(connection).get_columns("prompt_templates")}
             for column_name, column_type, default_value in (
@@ -91,7 +245,7 @@ def migrate_topic_schema():
             connection.execute(text("UPDATE users SET role = 'super_admin' WHERE role = 'admin'"))
             connection.execute(text("UPDATE users SET role = 'topic_monitor' WHERE role = 'analyst'"))
 
-        if session.engine.dialect.name == "postgresql":
+        if connection.dialect.name == "postgresql":
             for table in ("monitored_sources", "keywords", "posts"):
                 if table in existing_tables:
                     foreign_keys = inspect(connection).get_foreign_keys(table)
@@ -129,14 +283,15 @@ def init_db():
 
         # Step 1: Create all tables from models
         logger.info("🔄 Creating database tables...")
-        Base.metadata.create_all(bind=session.engine)
+        bind = _active_engine()
+        Base.metadata.create_all(bind=bind)
         logger.info("✅ Database tables created/verified successfully")
 
         migrate_topic_schema()
 
         # create_all does not add columns to tables that already exist.
-        if session.engine.dialect.name == "postgresql":
-            with engine.begin() as connection:
+        if bind.dialect.name == "postgresql":
+            with bind.begin() as connection:
                 for column_name, column_type in (
                     ("title", "VARCHAR(1000)"),
                     ("source_url", "VARCHAR(1000)"),
@@ -177,12 +332,13 @@ def reset_database():
 
         # Drop all tables
         logger.warning("🗑️  Dropping all tables...")
-        Base.metadata.drop_all(bind=engine)
+        bind = _active_engine()
+        Base.metadata.drop_all(bind=bind)
         logger.warning("✅ All tables dropped")
 
         # Recreate all tables
         logger.info("🔄 Creating database tables...")
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=bind)
         logger.info("✅ All tables recreated")
 
         # Seed default data
