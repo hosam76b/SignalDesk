@@ -131,7 +131,10 @@ async def _discover_items(client: httpx.AsyncClient, keywords: list[str]) -> lis
         except Exception as exc:
             logger.warning("Spider discovery search failed for %r: %s", keyword, exc)
             continue
-        feed = feedparser.parse(response.text)
+        # feedparser is pure-Python and CPU-bound. Parsing a large news feed
+        # inline stalled the event loop for the duration; to_thread keeps the
+        # loop serving requests while the parse runs.
+        feed = await asyncio.to_thread(feedparser.parse, response.text)
         found_for_keyword = 0
         for entry in feed.entries:
             link = entry.get("link")

@@ -14,6 +14,12 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+#: Feed validators keyed by feed URL. Lets a poll send a conditional GET so an
+#: unchanged feed costs one 304 response instead of a full body transfer and a
+#: full re-parse. Without this every 5-minute cycle re-downloads and re-parses
+#: every feed in the system, which is the dominant cost of an idle scrape cycle.
+_CONDITIONAL_CACHE: Dict[str, Dict[str, str]] = {}
+
 
 class RSSService:
     """
@@ -25,6 +31,28 @@ class RSSService:
     def __init__(self):
         """Initialize RSS service."""
         self.feed_parser = feedparser
+
+    def _conditional_headers(self, feed_url: str) -> Dict[str, str]:
+        """Build If-None-Match / If-Modified-Since headers for ``feed_url``."""
+        cached = _CONDITIONAL_CACHE.get(feed_url)
+        if not cached:
+            return {}
+        headers: Dict[str, str] = {}
+        if cached.get("etag"):
+            headers["If-None-Match"] = cached["etag"]
+        if cached.get("last_modified"):
+            headers["If-Modified-Since"] = cached["last_modified"]
+        return headers
+
+    @staticmethod
+    def _remember_validators(feed_url: str, response: httpx.Response) -> None:
+        etag = response.headers.get("etag")
+        last_modified = response.headers.get("last-modified")
+        if etag or last_modified:
+            _CONDITIONAL_CACHE[feed_url] = {
+                "etag": etag or "",
+                "last_modified": last_modified or "",
+            }
 
     def parse_feed(self, feed_url: str, timeout: int = 10) -> Dict[str, Any]:
         """
@@ -51,15 +79,34 @@ class RSSService:
         try:
             logger.info(f"🔄 Parsing RSS feed: {feed_url}")
 
-            # Fetch and sanitize the payload before parsing malformed feeds.
-            response = httpx.get(feed_url, timeout=timeout, follow_redirects=True)
+            # Conditional GET: an unchanged feed answers 304 and costs no body
+            # transfer and no parse.
+            headers = self._conditional_headers(feed_url)
+            response = httpx.get(
+                feed_url,
+                timeout=timeout,
+                follow_redirects=True,
+                headers=headers or None,
+            )
+            if response.status_code == 304:
+                logger.debug(f"⏭️  RSS feed unchanged (304): {feed_url}")
+                return {
+                    "success": True,
+                    "error": None,
+                    "posts": [],
+                    "feed_title": None,
+                    "feed_description": None,
+                    "not_modified": True,
+                }
             response.raise_for_status()
+            self._remember_validators(feed_url, response)
+
             cleaned_xml = re.sub(
                 r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x84\x86-\x9F]',
                 '',
                 response.content.decode(response.encoding or 'utf-8', errors='replace'),
             )
-            feed = self.feed_parser.parse(BytesIO(cleaned_xml.encode('utf-8')))
+            feed = self._parse_feed_bytes(cleaned_xml)
 
             # Check for parsing errors
             if feed.bozo and feed.bozo_exception:
@@ -92,6 +139,22 @@ class RSSService:
                 "feed_title": None,
                 "feed_description": None,
             }
+
+    def _parse_feed_bytes(self, cleaned_xml: str) -> Any:
+        """Parse sanitized feed XML.
+
+        ``feedparser`` is pure-Python and CPU-bound, so it is offloaded to a
+        worker thread. Called from the async scraping path via
+        ``parse_feed_async``, keeping a large feed from stalling the event loop.
+        """
+        return self.feed_parser.parse(BytesIO(cleaned_xml.encode('utf-8')))
+
+    async def parse_feed_async(self, feed_url: str, timeout: int = 10) -> Dict[str, Any]:
+        """Non-blocking :meth:`parse_feed`; the HTTP fetch and the parse are both
+        moved off the event loop."""
+        import asyncio
+
+        return await asyncio.to_thread(self.parse_feed, feed_url, timeout)
 
     def _extract_posts(self, feed: Any) -> List[Dict[str, Any]]:
         """

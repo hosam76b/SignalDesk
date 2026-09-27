@@ -18,10 +18,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, normalize_role
+from app.core.ssrf import UnsafeURLError, validate_url
 from app.db.session import get_db
 from app.models import MonitoredSource, Post, Topic, User, UserTopic
 from app.services.audit_service import record_audit
-from app.services.ai_orchestrator import auto_analyze_posts
+from app.services.ai_orchestrator import process_posts_by_ids_async
 from app.services.media_extraction_service import media_extractor
 from app.services.media_processor import process_post_media, schedule_media_processing
 from app.services.scraper_orchestrator import ScraperOrchestrator
@@ -38,6 +39,30 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"}
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".webm", ".mkv", ".m4a", ".mp3", ".wav"}
 
 _orchestrator = ScraperOrchestrator()
+
+
+def _validate_ingest_url(url: str) -> str:
+    """Apply the outbound URL policy to a user-supplied ingest URL.
+
+    Quick Ingest is reachable by any authenticated user holding a topic
+    assignment, including the ``observer`` role, and it makes the server fetch
+    the URL. That is a request-forgery primitive: ``169.254.169.254`` reaches
+    the cloud metadata service, ``127.0.0.1:8000`` reaches unauthenticated
+    endpoints on the very process issuing the request, and ``file://`` reads
+    local files. Validation resolves the hostname and checks the address, so a
+    public name pointing at an internal address is rejected too.
+    """
+    from config import settings
+
+    try:
+        return validate_url(
+            url,
+            allow_private=bool(getattr(settings, "allow_private_outbound_urls", False)),
+            allow_blocked_ports=bool(getattr(settings, "allow_blocked_ports_outbound", False)),
+        )
+    except UnsafeURLError as exc:
+        logger.warning("Rejected ingest URL from user: %s", exc)
+        raise HTTPException(status_code=400, detail=f"URL rejected: {exc}") from exc
 
 
 def _assert_topic_access(db: Session, current_user: User, topic_id: int) -> None:
@@ -118,9 +143,12 @@ async def quick_ingest_url(
     if db.query(Topic).filter(Topic.id == payload.topic_id).first() is None:
         raise HTTPException(status_code=404, detail="Topic not found")
 
+    # Block SSRF targets before the server performs the fetch.
+    safe_url = _validate_ingest_url(payload.url)
+
     platform = _detect_platform(payload.url)
     try:
-        result = await _orchestrator.scraper_service.scrape_source(platform, payload.url, keywords=[])
+        result = await _orchestrator.scraper_service.scrape_source(platform, safe_url, keywords=[])
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Could not fetch this URL: {exc}") from exc
     if not result.get("success"):
@@ -160,7 +188,12 @@ async def quick_ingest_url(
     else:
         for post in created_posts:
             await process_post_media(post.id)
-    auto_analyze_posts(db, [post.id for post in created_posts])
+
+    # Awaited, not run_sync. Awaiting keeps the event loop free to serve other
+    # requests for the whole batch; the previous run_sync() call blocked it and
+    # froze the entire server for the duration of every provider call.
+    if created_posts:
+        await process_posts_by_ids_async(db, [post.id for post in created_posts])
 
     return QuickIngestResult(saved=saved_count, platform=platform, post_ids=[post.id for post in created_posts])
 
@@ -239,7 +272,9 @@ async def quick_ingest_file(
         new_post.media_status = "failed"
     db.commit()
     db.refresh(new_post)
-    auto_analyze_posts(db, [new_post.id])
+    # Awaited so the caller gets the analysis back in the same response, without
+    # blocking the event loop the way the previous run_sync() call did.
+    await process_posts_by_ids_async(db, [new_post.id])
 
     return QuickIngestFileResult(
         post_id=new_post.id,

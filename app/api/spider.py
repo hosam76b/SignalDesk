@@ -108,17 +108,38 @@ async def run_spider(
             detail="Provide at least one search topic, keyword, or seed URL",
         )
 
+    # Seed URLs are fetched by the crawler with follow_redirects=True, so they
+    # must clear the outbound policy before the run starts. Validating here
+    # rather than inside the crawl keeps a bad seed from surfacing as a run
+    # failure after it has already been stored.
+    seed_urls = payload.seed_urls or []
+    if seed_urls:
+        from app.core.ssrf import UnsafeURLError, validate_url
+        from config import settings
+
+        try:
+            seed_urls = [
+                validate_url(
+                    url,
+                    allow_private=bool(getattr(settings, "allow_private_outbound_urls", False)),
+                    allow_blocked_ports=bool(getattr(settings, "allow_blocked_ports_outbound", False)),
+                )
+                for url in seed_urls
+            ]
+        except UnsafeURLError as exc:
+            logger.warning("Rejected spider seed URL: %s", exc)
+            raise HTTPException(status_code=400, detail=f"Seed URL rejected: {exc}") from exc
+
     run = spider_orchestrator.create_run(
         topic_id=payload.topic_id,
         search_topics=payload.search_topics,
         target_keywords=payload.target_keywords,
-        seed_urls=payload.seed_urls or [],
+        seed_urls=seed_urls,
         relevance_threshold=payload.relevance_threshold,
         max_depth=payload.max_depth,
         proxy_enabled=payload.proxy_enabled,
     )
 
-    seed_urls = payload.seed_urls or []
     asyncio.create_task(spider_orchestrator.execute(run.run_id, seed_urls))
     message = (
         "Spider run started"

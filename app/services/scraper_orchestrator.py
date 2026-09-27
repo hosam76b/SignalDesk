@@ -3,6 +3,7 @@ Scraper Orchestrator Service.
 Coordinates all scraping services and manages data integration.
 """
 
+import asyncio
 import logging
 from hashlib import md5
 from typing import List, Dict, Any, Tuple
@@ -10,11 +11,12 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 
+from config import settings
 from app.models.source import MonitoredSource
 from app.models.keyword import Keyword
-from app.models.post import Post
+from app.models.post import AI_STATUS_PENDING, Post
 from app.models.topic import Topic
-from app.services.ai_orchestrator import auto_analyze_posts
+from app.services.ai_queue import schedule_analysis
 from app.services.scraper_service import ScraperService
 from app.services.webhook_service import dispatch_post_ingested
 from app.services.media_processor import schedule_media_processing
@@ -42,17 +44,24 @@ class ScraperOrchestrator:
     async def run_scraping_cycle(self, db: Session, topic_id: int | None = None) -> Dict[str, Any]:
         """
         Execute a complete scraping cycle.
-        
+
         Process:
         1. Fetch active monitored sources and keywords
-        2. For each source, scrape based on platform type
+        2. Scrape sources concurrently (network-bound) under a semaphore
         3. Normalize results into Post schema
-        4. Check for duplicates and save new posts
-        5. Update last_scraped_at timestamp
-        
+        4. Check for duplicates in one batched query and save new posts
+        5. Hand the new post IDs to the background AI queue
+        6. Update last_scraped_at timestamp
+
+        Fetching is concurrent and persistence is serial on purpose. Scraping is
+        dominated by network waits (Playwright navigation, RSS fetches), so
+        overlapping it is where the throughput is. Writes stay on one session
+        and one code path, because a SQLAlchemy Session is not safe to drive
+        from interleaved tasks and SQLite serialises writers regardless.
+
         Args:
             db (Session): Database session.
-        
+
         Returns:
             Dict with scraping statistics:
                 - 'success': bool
@@ -104,16 +113,17 @@ class ScraperOrchestrator:
             ))
             stats["total_sources"] = len(sources)
 
-            for source in sources:
-                try:
-                    source.status = "pending"
-                    source.last_error = None
-                    source.last_error_at = None
-                    db.commit()
-                    posts = await self._scrape_source(source, search_keywords)
-                    stats["total_posts_found"] += len(posts)
-                    saved_for_source = 0
+            # ---- Phase 1: concurrent fetch (network-bound) --------------
+            fetched = await self._fetch_all_sources(sources, search_keywords)
+            stats["total_posts_found"] = sum(len(posts) for _, posts, _ in fetched)
 
+            # ---- Phase 2: serial persistence (DB-bound) -----------------
+            for source, posts, error in fetched:
+                try:
+                    if error is not None:
+                        raise RuntimeError(error)
+
+                    saved_for_source = 0
                     for topic in topics:
                         topic_posts = posts if not keywords_by_topic[topic.id] else [
                             post for post in posts if self._matches_keywords(post, keywords_by_topic[topic.id])
@@ -137,6 +147,8 @@ class ScraperOrchestrator:
 
                     source.last_scraped_at = datetime.now(timezone.utc)
                     source.status = "active"
+                    source.last_error = None
+                    source.last_error_at = None
                     db.commit()
                     platform_stats = stats["sources_processed"].setdefault(
                         source.platform, {"sources": 0, "posts_found": 0, "posts_saved": 0}
@@ -148,7 +160,10 @@ class ScraperOrchestrator:
                     source.status = "failed"
                     source.last_error = str(exc)[:1000]
                     source.last_error_at = datetime.now(timezone.utc)
-                    db.commit()
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
                     stats["success"] = False
                     stats["errors"].append(f"Error processing {source.name}: {exc}")
 
@@ -165,6 +180,26 @@ class ScraperOrchestrator:
             stats["duration_seconds"] = duration
 
         return stats
+
+    async def _fetch_all_sources(
+        self,
+        sources: List[MonitoredSource],
+        search_keywords: List[str],
+    ) -> List[tuple[MonitoredSource, List[Dict[str, Any]], str | None]]:
+        """Fetch every source concurrently, returning (source, posts, error)."""
+        limit = max(1, int(getattr(settings, "scraping_max_concurrency", 6) or 6))
+        semaphore = asyncio.Semaphore(limit)
+
+        async def _one(source: MonitoredSource):
+            async with semaphore:
+                try:
+                    posts = await self._scrape_source(source, search_keywords)
+                    return (source, posts, None)
+                except Exception as exc:
+                    logger.warning("Scrape failed for %s: %s", source.name, exc)
+                    return (source, [], str(exc))
+
+        return list(await asyncio.gather(*(_one(source) for source in sources)))
 
     @staticmethod
     def _matches_keywords(post: Dict[str, Any], keywords: List[str]) -> bool:
@@ -219,6 +254,16 @@ class ScraperOrchestrator:
         """
         Save posts to database, avoiding duplicates.
 
+        Duplicate detection used to issue one SELECT per candidate post using
+        the predicate ``source_id AND topic_id AND (external_id OR post_url OR
+        content_fingerprint)``, which SQLite could only satisfy from
+        ``ix_posts_topic_id`` -- so each lookup scanned every post in the topic.
+        Measured at 1.75 ms per post on a 3.8k-row table: 0.35 s for a 200-post
+        batch, growing quadratically within a topic.
+
+        It is now a fixed number of queries regardless of batch size: one
+        ``IN`` lookup per identity column, resolved into in-memory sets.
+
         Args:
             db (Session): Database session.
             source (MonitoredSource): Source the posts came from.
@@ -227,20 +272,78 @@ class ScraperOrchestrator:
         Returns:
             Number of new posts saved.
         """
+        if not posts:
+            return 0
+
         saved_count = 0
         new_posts: list[Post] = []
         seen_keys: set[tuple[str, str]] = set()
 
-        for post_data in posts:
-            try:
-                # Check for duplicates
-                external_id = post_data.get("external_id", "")
-                post_url = post_data.get("post_url", "")
-                content = post_data.get("content", "")[:5000]
-                fingerprint = md5(
-                    f"{content}|{post_data.get('author', 'Unknown')}|{post_url}".encode("utf-8")
-                ).hexdigest()
+        # --- Pass 1: normalize candidates, collect identity values --------
+        candidates: List[tuple] = []
+        external_ids: set[str] = set()
+        post_urls: set[str] = set()
+        fingerprints: set[str] = set()
 
+        for post_data in posts:
+            external_id = str(post_data.get("external_id", "") or "")
+            post_url = str(post_data.get("post_url", "") or "")
+            author = str(post_data.get("author", "Unknown"))
+            # Truncated to the same width as the stored column so the value
+            # computed here matches what is already in the database.
+            content = str(post_data.get("content", "") or "")[:5000]
+            fingerprint = md5(f"{content}|{author}|{post_url}".encode("utf-8")).hexdigest()
+            if not (external_id or post_url or fingerprint):
+                continue
+            candidates.append((post_data, external_id, post_url, fingerprint, content, author))
+            if external_id:
+                external_ids.add(external_id)
+            if post_url:
+                post_urls.add(post_url)
+            fingerprints.add(fingerprint)
+
+        # --- Pass 2: one batched lookup per identity column ----------------
+        # SQLAlchemy's default SQLite bind-parameter limit is 999, so chunk.
+        def _chunks(values: set[str], size: int = 400):
+            batch: List[str] = []
+            for value in values:
+                batch.append(value)
+                if len(batch) >= size:
+                    yield batch
+                    batch = []
+            if batch:
+                yield batch
+
+        existing_external: set[str] = set()
+        existing_urls: set[str] = set()
+        existing_fingerprints: set[str] = set()
+        base_filter = (Post.source_id == source.id, Post.topic_id == topic_id)
+
+        for chunk in _chunks(external_ids):
+            existing_external.update(
+                row[0] for row in
+                db.query(Post.external_id).filter(*base_filter, Post.external_id.in_(chunk)).all()
+                if row[0]
+            )
+        for chunk in _chunks(post_urls):
+            existing_urls.update(
+                row[0] for row in
+                db.query(Post.post_url).filter(*base_filter, Post.post_url.in_(chunk)).all()
+                if row[0]
+            )
+        for chunk in _chunks(fingerprints):
+            existing_fingerprints.update(
+                row[0] for row in
+                db.query(Post.content_fingerprint)
+                .filter(*base_filter, Post.content_fingerprint.in_(chunk)).all()
+                if row[0]
+            )
+
+        # --- Pass 3: filter and insert ------------------------------------
+        now = datetime.now(timezone.utc)
+        for post_data, external_id, post_url, fingerprint, content, author in candidates:
+            try:
+                # In-batch duplicate suppression (feeds repeat entries).
                 candidate_keys = {
                     ("external_id", external_id),
                     ("post_url", post_url),
@@ -250,29 +353,28 @@ class ScraperOrchestrator:
                     logger.debug("Skipping duplicate post within scrape batch: %s", external_id)
                     continue
 
-                if external_id or post_url or fingerprint:
-                    existing = db.query(Post).filter(
-                        Post.source_id == source.id,
-                        Post.topic_id == topic_id,
-                        ((Post.external_id == external_id) | (Post.post_url == post_url) | (Post.content_fingerprint == fingerprint)),
-                    ).first()
-
-                    if existing:
-                        logger.debug(f"Skipping duplicate post: {external_id}")
-                        continue
+                if (
+                    (external_id and external_id in existing_external)
+                    or (post_url and post_url in existing_urls)
+                    or (fingerprint and fingerprint in existing_fingerprints)
+                ):
+                    logger.debug("Skipping duplicate post: %s", external_id)
+                    continue
 
                 seen_keys.update((key, value) for key, value in candidate_keys if value)
+                existing_external.add(external_id)
+                existing_urls.add(post_url)
+                existing_fingerprints.add(fingerprint)
 
                 # Rule-based pre-screen so explicit threats are visible before the AI batch runs.
                 risk = screen_text(content)
 
-                # Create new Post object
                 new_post = Post(
                     topic_id=topic_id,
                     source_id=source.id,
-                    external_id=post_data.get("external_id", f"unknown_{datetime.now(timezone.utc).timestamp()}"),
+                    external_id=post_data.get("external_id", f"unknown_{now.timestamp()}"),
                     platform=post_data.get("platform", source.platform),
-                    author=post_data.get("author", "Unknown"),
+                    author=author,
                     title=post_data.get("title", ""),
                     content=content,
                     content_fingerprint=fingerprint,
@@ -281,12 +383,16 @@ class ScraperOrchestrator:
                     source_url=post_data.get("source_url", source.url_or_handle),
                     raw_metadata=post_data.get("raw_metadata", {}),
                     tags=post_data.get("tags", []),
-                    published_at=post_data.get("published_at", datetime.now(timezone.utc)),
-                    scraped_at=datetime.now(timezone.utc),
+                    published_at=post_data.get("published_at", now),
+                    scraped_at=now,
                     is_flagged=risk is not None,
                     is_dangerous=risk is not None,
                     violence_category=risk["violence_category"] if risk else None,
                     media_status="pending",
+                    # Claimable by the background worker immediately. Set
+                    # explicitly rather than relying on the column default so
+                    # the row is never briefly invisible to the queue.
+                    ai_status=AI_STATUS_PENDING,
                 )
 
                 db.add(new_post)
@@ -297,20 +403,33 @@ class ScraperOrchestrator:
                 logger.warning(f"⚠️  Error saving post: {str(e)}")
                 continue
 
-        # Commit all new posts
         if saved_count > 0:
             try:
+                # One commit for the whole batch: with synchronous=NORMAL under
+                # WAL this is a single fsync instead of one per post.
                 db.commit()
                 logger.info(f"💾 Saved {saved_count} new posts to database")
-                auto_analyze_posts(db, [post.id for post in new_posts])
-                # OCR/audio-transcript extraction runs as a per-post background task so
-                # it never blocks the scraping cycle or HTTP workers.
-                for post in new_posts:
-                    if post.media_urls or post.post_url or post.source_url:
-                        schedule_media_processing(post.id)
             except Exception as e:
                 logger.error(f"❌ Error committing posts to database: {str(e)}")
                 db.rollback()
-                saved_count = 0
+                return 0
+
+            # AI analysis goes to the bounded background queue. It must not run
+            # inline: blocking here froze the entire event loop for the duration
+            # of every provider call in the batch.
+            accepted = schedule_analysis([post.id for post in new_posts])
+            if accepted < saved_count:
+                logger.info(
+                    "%d of %d new post(s) queued; the rest stay 'pending' and are "
+                    "claimed on a later cycle",
+                    accepted,
+                    saved_count,
+                )
+
+            # OCR/audio-transcript extraction runs as a per-post background task so
+            # it never blocks the scraping cycle or HTTP workers.
+            for post in new_posts:
+                if post.media_urls or post.post_url or post.source_url:
+                    schedule_media_processing(post.id)
 
         return saved_count

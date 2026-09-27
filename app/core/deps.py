@@ -104,7 +104,14 @@ def get_current_topic_admin(
     current_user: User = Depends(get_current_topic_user),
     db: Session = Depends(get_db),
 ) -> User:
-    """Require super-admin or topic-admin access to the requested topic."""
+    """Require super-admin or topic-admin access to the requested topic.
+
+    A topic monitor is deliberately excluded: ``normalize_role`` folds
+    ``topic_monitor`` into ``analyst``, so listing it here would hand monitors
+    exactly the create/update/delete rights over sources, keywords, and topic
+    membership that this gate exists to withhold. Monitors keep read access via
+    ``get_current_topic_user``.
+    """
     if normalize_role(current_user.role) == "super_admin":
         return current_user
 
@@ -112,7 +119,7 @@ def get_current_topic_admin(
         UserTopic.user_id == current_user.id,
         UserTopic.topic_id == topic_id,
     ).first()
-    allowed_roles = {"topic_manager", "topic_admin", "topic_monitor", "analyst"}
+    allowed_roles = {"topic_manager", "topic_admin"}
     if assignment is None or normalize_role(assignment.role) not in allowed_roles:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

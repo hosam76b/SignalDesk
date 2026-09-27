@@ -123,16 +123,22 @@ class ScraperService:
         """Fetch posts from a public or private Telegram channel."""
         return await telegram_adapter.fetch_channel_posts(target, limit=50, keywords=keywords)
 
-    @staticmethod
-    def _validate_source_configuration(platform: str, target: str) -> None:
-        """Reject invalid targets and unavailable credentials before network work."""
+    def _validate_source_configuration(self, platform: str, target: str) -> None:
+        """Reject invalid targets and unavailable credentials before network work.
+
+        Credential checks read ``self.apify`` / ``self.meta`` rather than
+        ``settings``, because the routing in ``scrape_source`` authenticates with
+        *this instance's* token. Validating the global would reject a caller that
+        injected a per-source token, and pass a caller whose instance has none
+        only to fail later at the HTTP layer.
+        """
         target = (target or "").strip()
         if platform == "telegram" and not target:
             raise SourceConfigurationError("اسم قناة أو رابط Telegram مطلوب")
         if platform == "rss" and not target.lower().startswith(("http://", "https://")):
             raise SourceConfigurationError("رابط RSS غير صالح: يجب أن يبدأ بـ http:// أو https://")
-        if platform in APIFY_PLATFORMS and not settings.apify_api_token:
-            if not (platform == "facebook" and settings.meta_access_token):
+        if platform in APIFY_PLATFORMS and not self.apify.is_configured:
+            if not (platform == "facebook" and self.meta.is_configured):
                 raise SourceConfigurationError(f"لا يوجد APIFY_API_TOKEN لمنصة {platform}")
 
     def scrape_rss(self, url: str, _: list[str] | None = None) -> list[dict[str, Any]]:
