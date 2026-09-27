@@ -17,6 +17,7 @@ from app.core.deps import get_current_user, get_current_admin_user, get_current_
 from app.services.ai_orchestrator import ai_orchestrator, process_posts_by_ids
 from app.services.audit_service import record_audit
 from app.services.ai_service import analyze_post_content, get_ai_status, ai_service
+from app.services.ai_queue import ai_queue, pause_analysis, resume_analysis
 from app.services.knowledge_context import get_topic_knowledge_context
 from app.services.media_processor import build_combined_text
 
@@ -113,6 +114,28 @@ def get_ai_status_endpoint() -> dict[str, Any]:
 @router.get("/config", response_model=AIConnectionRead)
 def get_ai_config(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
     return ai_service.get_config()
+
+
+@router.get("/queue")
+def get_ai_queue_status(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    """Queue depth, throttle state, and reclaim counters."""
+    return ai_queue.stats()
+
+
+@router.post("/queue/pause")
+def pause_ai_queue(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    """Throttle the AI worker so SQLite and the CPU are free for the dashboard.
+
+    In-flight work is allowed to finish; anything still queued stays 'pending'
+    in the database and is picked up by the reclaim loop after resume.
+    """
+    return pause_analysis()
+
+
+@router.post("/queue/resume")
+def resume_ai_queue(_: User = Depends(get_current_admin_user)) -> dict[str, Any]:
+    """Resume the AI worker and drain the pending backlog."""
+    return resume_analysis()
 
 
 @router.put("/config", response_model=AIConnectionRead)

@@ -5,17 +5,25 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.core.cache import TTLCache
 from app.core.deps import get_current_user
 from app.db.session import get_db
 from app.models.post import Post
 from app.models.user import User
 
+from config import settings
+
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
+
+#: Process-local cache for the aggregate panels. Keyed by a constant because the
+#: values are the same for every operator -- do not widen the key to per-user
+#: data without also scoping the cache per user.
+_stats_cache = TTLCache(maxsize=16)
 
 
 class DashboardStatsResponse(BaseModel):
@@ -82,12 +90,8 @@ class RecentActivityPost(BaseModel):
         )
 
 
-@router.get("/stats", response_model=DashboardStatsResponse)
-def get_dashboard_stats(
-    db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
-) -> DashboardStatsResponse:
-    """Return total, platform, severity, and flagged-post counts."""
+def _compute_dashboard_stats(db: Session) -> DashboardStatsResponse:
+    """Run the aggregate queries. Split out so the cache can wrap it."""
     total_posts = db.query(func.count(Post.id)).scalar() or 0
     flagged_posts = (
         db.query(func.count(Post.id))
@@ -119,39 +123,90 @@ def get_dashboard_stats(
     )
 
 
+@router.get("/stats", response_model=DashboardStatsResponse)
+def get_dashboard_stats(
+    response: Response,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+) -> DashboardStatsResponse:
+    """Return total, platform, severity, and flagged-post counts.
+
+    The aggregates are identical for every operator and only move as posts are
+    ingested, so they are cached for ``DASHBOARD_CACHE_TTL_SECONDS``. Panel
+    reloads therefore stop issuing four full aggregate scans each.
+    """
+    ttl = float(getattr(settings, "dashboard_cache_ttl_seconds", 15) or 0)
+    payload = _stats_cache.get_or_set(
+        "dashboard:stats", ttl, lambda: _compute_dashboard_stats(db)
+    )
+    response.headers["X-Cache"] = "HIT" if ttl > 0 else "BYPASS"
+    response.headers["Cache-Control"] = f"private, max-age={int(ttl)}" if ttl > 0 else "no-store"
+    return payload
+
+
+#: Rows pulled from the database per dedupe page while assembling a page of
+#: activity. Keeps memory bounded regardless of how aggressively the caller
+#: pages and how many near-duplicates exist.
+_DEDUPE_PAGE = 200
+
+#: Hard ceiling on rows scanned for a single request. Without it, a pathological
+#: duplicate ratio would let one request walk the whole table.
+_MAX_SCAN = 2000
+
+
 @router.get("/recent-activity", response_model=list[RecentActivityPost])
 def get_recent_activity(
+    limit: int = Query(default=15, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=100_000),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ) -> list[RecentActivityPost]:
-    """Return the 15 most recently ingested posts."""
-    posts = (
-        db.query(Post)
-        .order_by(Post.scraped_at.desc(), Post.id.desc())
-        .limit(100)
-        .all()
-    )
+    """Return a deduplicated page of recently ingested posts.
+
+    ``limit``/``offset`` apply to the *deduplicated* sequence, so paging is
+    stable and predictable rather than a raw SQL window. Rows are read in
+    bounded pages and the scan stops as soon as enough unique posts are found,
+    capped at ``_MAX_SCAN`` rows.
+    """
+    target = offset + limit
     unique_posts: list[Post] = []
     seen_external_ids: set[str] = set()
     seen_urls: set[str] = set()
     seen_fingerprints: set[str] = set()
-    for post in posts:
-        external_id = (post.external_id or "").strip()
-        post_url = (post.post_url or "").strip()
-        fingerprint = (post.content_fingerprint or "").strip()
-        if (
-            (external_id and external_id in seen_external_ids)
-            or (post_url and post_url in seen_urls)
-            or (fingerprint and fingerprint in seen_fingerprints)
-        ):
-            continue
-        unique_posts.append(post)
-        if external_id:
-            seen_external_ids.add(external_id)
-        if post_url:
-            seen_urls.add(post_url)
-        if fingerprint:
-            seen_fingerprints.add(fingerprint)
-        if len(unique_posts) == 15:
+
+    scanned = 0
+    while len(unique_posts) < target and scanned < _MAX_SCAN:
+        page = (
+            db.query(Post)
+            .order_by(Post.scraped_at.desc(), Post.id.desc())
+            .offset(scanned)
+            .limit(_DEDUPE_PAGE)
+            .all()
+        )
+        if not page:
             break
-    return [RecentActivityPost.from_post(post) for post in unique_posts]
+        scanned += len(page)
+        for post in page:
+            external_id = (post.external_id or "").strip()
+            post_url = (post.post_url or "").strip()
+            fingerprint = (post.content_fingerprint or "").strip()
+            if (
+                (external_id and external_id in seen_external_ids)
+                or (post_url and post_url in seen_urls)
+                or (fingerprint and fingerprint in seen_fingerprints)
+            ):
+                continue
+            unique_posts.append(post)
+            if external_id:
+                seen_external_ids.add(external_id)
+            if post_url:
+                seen_urls.add(post_url)
+            if fingerprint:
+                seen_fingerprints.add(fingerprint)
+            if len(unique_posts) >= target:
+                break
+        if len(page) < _DEDUPE_PAGE:
+            break
+
+    return [RecentActivityPost.from_post(post) for post in unique_posts[offset:target]]
+
