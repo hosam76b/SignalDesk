@@ -6,11 +6,14 @@ Initializes database, includes authentication and user management endpoints.
 import logging
 import asyncio
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import unquote
+
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 from fastapi.staticfiles import StaticFiles
@@ -18,8 +21,11 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from app.core.rate_limit import limiter
+from app.core.self_check import self_check
 from app.db.init_db import init_db
-from app.db.session import SessionLocal
+from app.db.session import SessionLocal, current_sqlite_pragmas
+from app.services.ai_queue import ai_queue
+from app.services.ai_service import ai_service
 from app.api import auth as auth_routes
 from app.api import users as users_routes
 from app.api import scraper as scraper_routes
@@ -65,7 +71,12 @@ openapi_url, docs_url, redoc_url = _api_documentation_urls()
 
 
 async def _background_scraping_loop() -> None:
-    """Continuously ingest active topic sources on a dedicated DB session."""
+    """Continuously ingest active topic sources on a dedicated DB session.
+
+    Scraping only *enqueues* AI work now; the bounded queue's worker performs
+    the provider calls. This loop therefore returns to ``asyncio.sleep`` on a
+    network-bound schedule instead of blocking for the whole analysis batch.
+    """
     interval = max(15, settings.scraping_interval_seconds)
     while True:
         db = SessionLocal()
@@ -79,6 +90,8 @@ async def _background_scraping_loop() -> None:
                 result.get("new_posts_saved", 0),
                 len(result.get("errors", [])),
             )
+        except asyncio.CancelledError:
+            raise
         except Exception:
             logger.exception("Background scraping cycle failed")
         finally:
@@ -86,10 +99,6 @@ async def _background_scraping_loop() -> None:
             db.close()
         await asyncio.sleep(interval)
 
-
-# ============================================================================
-# FastAPI Application Setup
-# ============================================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -101,12 +110,33 @@ async def lifespan(app: FastAPI):
     logger.info(f"Debug mode: {settings.debug}")
     logger.info(f"Log level: {settings.log_level}")
     try:
+        for warning in settings.assert_secure_defaults():
+            logger.warning("⚠️  SECURITY: %s", warning)
+
         init_db()
+
+        pragmas = current_sqlite_pragmas()
+        if pragmas:
+            logger.info("🗄️  SQLite pragmas: %s", pragmas)
+
+        # Start the AI worker before serving traffic so a scrape cycle that
+        # lands immediately has somewhere to enqueue. The worker owns its own
+        # session and event-loop task, so provider latency can no longer block
+        # request handling.
+        ai_queue.start()
+
+        # Watches our own listener. If the Windows IOCP accept loop dies the
+        # process would otherwise stay alive, keep the SQLite write lock held
+        # and serve nothing while the service manager still reports "Running".
+        # Started last so it cannot race the socket it is about to probe.
+        self_check.start()
+
         if settings.scraping_enabled and "PYTEST_CURRENT_TEST" not in os.environ:
             scraping_task = asyncio.create_task(_background_scraping_loop())
             logger.info(
-                "✅ Background scraping enabled; interval=%ss",
+                "✅ Background scraping enabled; interval=%ss concurrency=%s",
                 max(15, settings.scraping_interval_seconds),
+                settings.scraping_max_concurrency,
             )
         logger.info("✅ Application startup complete")
         yield
@@ -118,6 +148,8 @@ async def lifespan(app: FastAPI):
             scraping_task.cancel()
             await asyncio.gather(scraping_task, return_exceptions=True)
             logger.info("✅ Background scraping stopped")
+        await self_check.stop()
+        await ai_queue.stop()
         logger.info("=" * 80)
         logger.info(f"🛑 {settings.app_name} shutting down...")
         logger.info("=" * 80)
@@ -141,8 +173,13 @@ app.state.limiter = limiter
 async def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):
     """Return rate-limit responses with CORS headers for browser clients."""
     response = _rate_limit_exceeded_handler(request, exc)
-    response.headers["Access-Control-Allow-Origin"] = request.headers.get("origin", "*")
-    response.headers["Vary"] = "Origin"
+    # Reflect only an origin that is actually allow-listed. Echoing whatever the
+    # client sent, as this handler used to, handed out an
+    # Access-Control-Allow-Origin for any site paired with credentials.
+    origin = request.headers.get("origin", "")
+    if origin and origin.rstrip("/") in _allowed_origins:
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Vary"] = "Origin"
     return response
 
 
@@ -150,18 +187,91 @@ app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS Configuration
+#
+# Origins are explicit. A wildcard with allow_credentials=True makes Starlette
+# reflect the request Origin and pair it with
+# Access-Control-Allow-Credentials: true, which was measured here as a
+# preflight from https://evil.example.com being answered 200 with
+# ACAO: 'https://evil.example.com'.
+_allowed_origins = settings.cors_origin_list
+logger.info("CORS allowed origins: %s", _allowed_origins or "(none)")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_split_csv(settings.cors_allow_origins),
+    allow_origins=_allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+    max_age=600,
 )
 
-# Serve Quick Ingest uploads (screenshots/clips) directly
+
+# --- Authenticated media serving -------------------------------------------
 MEDIA_UPLOADS_DIR = Path(__file__).resolve().parent / "media_uploads"
 MEDIA_UPLOADS_DIR.mkdir(exist_ok=True)
-app.mount("/media", StaticFiles(directory=str(MEDIA_UPLOADS_DIR)), name="media")
+MEDIA_ROOT = MEDIA_UPLOADS_DIR.resolve()
+
+MEDIA_CONTENT_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".gif": "image/gif", ".bmp": "image/bmp",
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+    ".mkv": "video/x-matroska", ".m4a": "audio/mp4", ".mp3": "audio/mpeg",
+    ".wav": "audio/wav", ".pdf": "application/pdf",
+}
+
+
+def _safe_media_path(relative: str) -> Path | None:
+    """Resolve ``relative`` inside the uploads dir, or None if it escapes."""
+    if not relative:
+        return None
+    try:
+        candidate = (MEDIA_ROOT / relative).resolve()
+    except (OSError, ValueError):
+        return None
+    if not candidate.is_relative_to(MEDIA_ROOT):
+        logger.warning("Blocked media path traversal attempt: %r", relative)
+        return None
+    # Defence in depth: never serve a non-media file even if it lands inside
+    # the uploads directory (a .env dropped there by some other tool).
+    if candidate.suffix.lower() not in MEDIA_CONTENT_TYPES:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+@app.get("/media/{media_path:path}", include_in_schema=False)
+async def serve_media(media_path: str, request: Request):
+    """Serve an uploaded media file to authenticated users only.
+
+    This was previously a bare ``StaticFiles`` mount, so every screenshot and
+    video clip ingested through Quick Ingest was world-readable to anything
+    that could reach the port -- including a LAN host, given the server binds
+    0.0.0.0.
+    """
+    from fastapi import HTTPException as _HTTPException
+    from fastapi.security import HTTPBearer
+
+    credentials = await HTTPBearer(auto_error=False)(request)
+    if credentials is None:
+        return JSONResponse(
+            status_code=401,
+            content={"detail": "Authentication required to access uploaded media"},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Percent-encoded traversal is rejected before decoding, and the decoded
+    # path is containment-checked as well.
+    if "%2e" in media_path.lower() or "%2f" in media_path.lower() or "%5c" in media_path.lower():
+        logger.warning("Blocked encoded media traversal attempt: %r", media_path)
+        raise _HTTPException(status_code=404, detail="Not found")
+
+    candidate = _safe_media_path(unquote(media_path))
+    if candidate is None:
+        raise _HTTPException(status_code=404, detail="Not found")
+    return FileResponse(
+        candidate,
+        media_type=MEDIA_CONTENT_TYPES.get(candidate.suffix.lower()),
+        # Uploads are user-supplied; never let a browser sniff or execute them.
+        headers={"X-Content-Type-Options": "nosniff", "Content-Disposition": "inline"},
+    )
 
 # Include API routers
 app.include_router(auth_routes.router)
@@ -217,24 +327,63 @@ app.openapi = custom_openapi
 
 @app.get("/health", tags=["Health"])
 async def health_check():
-    """Detailed health check endpoint."""
+    """Liveness and readiness detail.
+
+    Deliberately unauthenticated and cheap: it must stay responsive even while
+    the AI worker is saturated, which is exactly the condition the audit
+    measured the old code against. It reports queue depth so a saturated queue
+    is visible without needing to log in.
+    """
     return {
         "status": "healthy",
         "database": "connected",
-        "cache": "configured"
+        "cache": "configured",
+        "ai_queue": ai_queue.stats(),
+        "ai_circuits": ai_service.circuit_status(),
     }
 
 
 FRONTEND_OUT_DIR = Path(__file__).resolve().parent / "frontend" / "out"
+# Pre-resolved build root. Every candidate is checked against this with
+# Path.is_relative_to, so percent-encoded traversal (`/%2e%2e/%2e%2e/.env`) and
+# plain `../` both resolve to a path outside the build dir and are rejected.
+# Without this, the catch-all route served arbitrary files -- including .env
+# with every API key and SECRET_KEY -- to unauthenticated callers.
+FRONTEND_BUILD_ROOT = FRONTEND_OUT_DIR.resolve()
+
+#: Encoded separators and dot-segments. Uvicorn normalizes literal `../` out of
+#: the path before routing but does not decode `%2e%2e`, so an encoded request
+#: reaches this handler intact and would otherwise be decoded downstream into a
+#: traversal. Rejecting the encoded forms up front means the decode step below
+#: can never produce an escaping path.
+_ENCODED_TRAVERSAL = re.compile(r"%2e|%2f|%5c|%00", re.IGNORECASE)
+
+
+def _safe_frontend_asset(path: str) -> Path | None:
+    """Return ``path`` resolved inside the build dir, or None if it escapes it."""
+    if not path:
+        return None
+    if _ENCODED_TRAVERSAL.search(path):
+        logger.warning("Blocked encoded frontend traversal attempt: %r", path)
+        return None
+    try:
+        candidate = (FRONTEND_BUILD_ROOT / unquote(path)).resolve()
+    except (OSError, ValueError):
+        # Malformed path (e.g. NUL bytes or a drive-relative path on Windows).
+        return None
+    if not candidate.is_relative_to(FRONTEND_BUILD_ROOT):
+        logger.warning("Blocked frontend path traversal attempt: %r", path)
+        return None
+    return candidate if candidate.is_file() else None
 
 
 @app.get("/{path:path}", include_in_schema=False)
 async def serve_frontend(path: str):
     """Serve the exported Next.js app and fall back to its SPA entry point."""
-    candidate = FRONTEND_OUT_DIR / path
-    if path and candidate.is_file():
+    candidate = _safe_frontend_asset(path)
+    if candidate is not None:
         return FileResponse(candidate)
-    index_file = FRONTEND_OUT_DIR / "index.html"
+    index_file = FRONTEND_BUILD_ROOT / "index.html"
     if index_file.is_file():
         return FileResponse(index_file)
     return {
