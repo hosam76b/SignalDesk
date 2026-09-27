@@ -13,7 +13,8 @@ from app.services.scraper_orchestrator import ScraperOrchestrator
 from app.services.scraper_service import ScraperService
 from app.services.rss_service import RSSService
 from app.services.youtube_service import YouTubeService
-from app.models import MonitoredSource
+from app.models import MonitoredSource, Post
+from app.models.post import AI_STATUS_PENDING
 
 
 def test_security_token_round_trip():
@@ -165,15 +166,23 @@ def test_orchestrator_all_topics_runs_each_topic(db, seeded_db, monkeypatch):
 
 
 def test_save_posts_triggers_automatic_analysis(db, seeded_db, monkeypatch):
+    """New posts must be handed to the background analysis queue.
+
+    The contract is unchanged -- ingestion triggers analysis for every post it
+    saves -- but the mechanism is now `schedule_analysis()` into the bounded
+    queue rather than an inline blocking call. Calling the analysis inline from
+    this path froze the whole event loop for the duration of every provider
+    call, which is the bug the queue exists to fix.
+    """
     orchestrator = ScraperOrchestrator()
     source = db.query(MonitoredSource).filter(MonitoredSource.name == "A Feed").first()
     captured: dict[str, list[int]] = {}
 
-    def fake_auto_analyze(_db, post_ids):
-        captured["post_ids"] = post_ids
-        return {"success": True, "processed": len(post_ids), "analyzed": len(post_ids), "updated": len(post_ids)}
+    def fake_schedule(post_ids):
+        captured["post_ids"] = list(post_ids)
+        return len(list(post_ids))
 
-    monkeypatch.setattr(scraper_orchestrator_module, "auto_analyze_posts", fake_auto_analyze)
+    monkeypatch.setattr(scraper_orchestrator_module, "schedule_analysis", fake_schedule)
     monkeypatch.setattr(scraper_orchestrator_module, "schedule_media_processing", lambda *_args, **_kwargs: None)
 
     saved = orchestrator._save_posts(db, source, [{
@@ -188,3 +197,7 @@ def test_save_posts_triggers_automatic_analysis(db, seeded_db, monkeypatch):
 
     assert saved == 1
     assert captured["post_ids"]
+    # The post must be claimable by the worker immediately, not left invisible
+    # to the queue.
+    queued = db.query(Post).filter(Post.id.in_(captured["post_ids"])).one()
+    assert queued.ai_status == AI_STATUS_PENDING

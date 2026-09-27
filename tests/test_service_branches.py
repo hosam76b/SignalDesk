@@ -27,6 +27,11 @@ def test_rss_success_path(monkeypatch):
     class Response:
         content = b"<rss/>"
         encoding = "utf-8"
+        # Conditional GET support reads status_code (to detect 304) and headers
+        # (to cache the ETag / Last-Modified validators), so the stub has to
+        # satisfy that part of the httpx.Response contract.
+        status_code = 200
+        headers: dict[str, str] = {}
 
         def raise_for_status(self):
             return None

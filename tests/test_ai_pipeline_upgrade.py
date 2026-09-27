@@ -42,6 +42,11 @@ VALID_PAYLOAD = {
 }
 
 
+async def _noop_dispatch(*_args, **_kwargs):
+    """Stand in for the awaited webhook dispatch at the end of a batch."""
+    return None
+
+
 def _service(provider: str, *, api_key: str = "test-key") -> AIAnalysisService:
     service = AIAnalysisService()
     service.client = None
@@ -231,6 +236,16 @@ def test_openai_compatible_provider_fetches_models(monkeypatch):
 def test_cloud_failure_falls_back_to_local_ollama(monkeypatch):
     service = _service("google_ai_studio")
 
+    # The fallback chain is gated on AI_FALLBACK_ENABLED, which the operator's
+    # .env may legitimately disable. Pin it for this test so it asserts the
+    # fallback *wiring* rather than the ambient deployment configuration, and so
+    # it does not require a live Ollama server (the client is faked below).
+    from config import settings
+
+    monkeypatch.setattr(settings, "ai_fallback_enabled", True, raising=False)
+    monkeypatch.setattr(settings, "ai_fallback_provider", "ollama", raising=False)
+    monkeypatch.setattr(settings, "ollama_enabled", True, raising=False)
+
     class FailingClient:
         async def __aenter__(self):
             return self
@@ -256,6 +271,7 @@ def test_cloud_failure_falls_back_to_local_ollama(monkeypatch):
     assert result["provider"] == "ollama"
     assert result["severity_level"] == "critical"
     assert result["is_flagged"] is True
+
 
 
 def test_all_providers_failing_returns_safe_structure(monkeypatch):
@@ -446,7 +462,7 @@ def test_batch_runs_concurrently_and_persists_results(db: Session, monkeypatch):
         }
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", fake_analyze)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
     monkeypatch.setattr(orchestrator_module.settings, "ai_max_concurrency", 5)
 
     started = time.perf_counter()
@@ -490,7 +506,7 @@ def test_batch_records_failures_without_aborting(db: Session, monkeypatch):
         }
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", flaky_analyze)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=10)
 
@@ -510,7 +526,7 @@ def test_batch_persists_sentiment_fallback_when_ai_is_unavailable(db: Session, m
         return orchestrator_module.fallback_result("AI engine is disabled or unavailable")
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", unavailable_analyze)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_posts_by_ids(db, [post.id])
     db.refresh(post)
@@ -556,7 +572,7 @@ def test_batch_uses_active_topic_prompt_and_injects_post_content(db: Session, mo
         }
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", fake_analyze)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=1)
 
@@ -591,7 +607,7 @@ def test_batch_always_injects_knowledge_context_when_template_has_post_content(d
         }
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", fake_analyze)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=1)
 

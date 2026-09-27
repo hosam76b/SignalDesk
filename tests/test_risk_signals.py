@@ -26,6 +26,11 @@ REDDIT_HTML_POST = (
 )
 
 
+async def _noop_dispatch(*_args, **_kwargs):
+    """Stand in for the awaited webhook dispatch at the end of a batch."""
+    return None
+
+
 def test_clean_text_strips_html_comments_tags_and_entities():
     cleaned = clean_text(REDDIT_HTML_POST)
     assert "<div" not in cleaned
@@ -116,7 +121,7 @@ def test_batch_flags_self_harm_even_when_model_under_rates(db: Session, monkeypa
         }
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", under_rating_model)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=10)
 
@@ -135,7 +140,7 @@ def test_batch_flags_self_harm_when_all_providers_fail(db: Session, monkeypatch)
         return orchestrator_module.fallback_result("all providers unavailable")
 
     monkeypatch.setattr(orchestrator_module.ai_service, "analyze_post_content_async", failing_model)
-    monkeypatch.setattr(orchestrator_module, "dispatch_event_blocking", lambda *_a, **_k: None)
+    monkeypatch.setattr(orchestrator_module, "dispatch_event", _noop_dispatch)
 
     result = orchestrator_module.process_unanalyzed_posts(db, batch_size=10)
 

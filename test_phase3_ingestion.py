@@ -35,7 +35,7 @@ def test_targeted_ingestion_scopes_sources_keywords_and_posts(db, seeded_db, mon
 
     assert result["success"], f"Targeted ingestion failed: {result['errors']}"
     assert result["new_posts_saved"] == 2, "Every global source must be evaluated for Topic A keywords"
-    assert {keywords for _, keywords in calls} == {("alpha",)}, "Only Topic A keywords may be evaluated"
+    assert {tuple(keywords) for _, keywords in calls} == {("alpha",)}, "Only Topic A keywords may be evaluated"
     posts = db.query(Post).all()
     assert len(posts) == 2, "Topic B must not produce a post during Topic A ingestion"
     assert {post.topic_id for post in posts} == {seeded_db["topic_a"].id}, "Saved posts must carry the triggering topic_id"
@@ -67,8 +67,14 @@ def test_ingestion_without_keywords_keeps_all_source_posts(db, seeded_db, monkey
     result = asyncio.run(orchestrator.run_scraping_cycle(db, topic_id=seeded_db["topic_a"].id))
 
     assert result["success"] is True
-    assert result["new_posts_saved"] == 1
-    assert db.query(Post).one().content == "This story has no configured keyword."
+    posts = db.query(Post).all()
+    # Two global sources, so two posts. Deduplication is keyed on
+    # (source_id, topic_id, external_id), so the identical external_id that
+    # fake_scrape returns for both sources is NOT a duplicate -- the point of
+    # this test is that dropping keywords must not drop any source's posts.
+    assert result["new_posts_saved"] == len(posts) == 2
+    assert len({post.source_id for post in posts}) == 2, "One post per source"
+    assert {post.content for post in posts} == {"This story has no configured keyword."}
 
 
 def test_n8n_payload_contains_topic_context(seeded_db):
