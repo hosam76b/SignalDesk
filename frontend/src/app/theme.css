@@ -265,3 +265,146 @@ html[dir='rtl'] .page-content, html[dir='rtl'] .page-header, html[dir='rtl'] .pa
 html[dir='rtl'] .nav-item { text-align: right; }
 html[dir='rtl'] .global-search input, html[dir='rtl'] .search-field input, html[dir='rtl'] .search-mini input, html[dir='rtl'] .feed-toolbar select, html[dir='rtl'] .topbar .crumbs { text-align: right; }
 html[dir='rtl'] .data-bar > strong { text-align: right; }
+
+/* --------------------------------------------------------------------------
+   Export Data tab
+   -------------------------------------------------------------------------- */
+.export-page { max-width: 1280px; }
+.export-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); align-items: start; gap: 17px; direction: ltr; }
+.export-filters { min-width: 0; padding: 21px; direction: rtl; }
+.export-side { min-width: 0; display: flex; flex-direction: column; gap: 17px; direction: rtl; }
+.export-filters .panel-heading { margin-top: 22px; }
+.export-filters .panel-heading:first-child { margin-top: 0; }
+.export-date-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.export-date-row label, .export-select-row label, .export-search { display: block; color: var(--muted); font-size: 10px; font-weight: 700; }
+.export-date-row input, .export-select-row select, .export-search input { display: block; width: 100%; margin-top: 7px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 6px; background: #fff; color: var(--ink); outline: 0; font-size: 11px; box-sizing: border-box; }
+.export-date-row input:focus, .export-select-row select:focus, .export-search input:focus { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(57,199,206,.12); }
+.export-select-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+.export-search { margin-top: 14px; }
+.export-column-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.export-column-actions button { border: 1px solid var(--line); border-radius: 999px; background: #fff; color: var(--muted); padding: 5px 11px; font-size: 9px; font-weight: 700; }
+.export-column-actions button:hover { border-color: var(--cyan); color: #168c91; }
+.export-column-group { margin: 0 0 14px; padding: 0; border: 0; }
+.export-column-group legend { padding: 0; color: var(--ink); font-size: 10px; font-weight: 800; }
+.export-column-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 7px 12px; margin-top: 9px; }
+.export-column-grid label { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 10px; font-weight: 500; color: var(--ink); }
+.export-column-grid input { width: 15px; height: 15px; flex: 0 0 auto; margin: 0; accent-color: var(--cyan); }
+.export-column-grid span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.export-format-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.export-format-grid label { display: grid; grid-template-columns: 16px 1fr; grid-template-rows: auto auto; align-items: center; gap: 3px 9px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; background: #fff; cursor: pointer; }
+.export-format-grid label.selected { border-color: var(--cyan); background: #effafa; box-shadow: 0 4px 14px rgba(57,199,206,.1); }
+.export-format-grid input { grid-row: 1 / span 2; width: 15px; height: 15px; margin: 0; accent-color: var(--cyan); }
+.export-format-grid strong { font-size: 11px; }
+.export-format-grid small { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.export-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; }
+.export-actions button { display: inline-flex; align-items: center; gap: 7px; padding: 11px 16px; }
+.export-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.export-notice { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 11px 14px; border: 1px solid #cfe9e5; border-radius: 9px; background: #f0fbf9; color: #187f7c; font-size: 10px; font-weight: 700; }
+.export-progress-track { height: 9px; border-radius: 5px; background: #edf0ed; overflow: hidden; }
+.export-progress-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), #8be3d1); transition: width .25s ease-out; }
+.export-progress-caption { margin: 10px 0 0; color: var(--ink); font-size: 10px; }
+.export-progress-caption strong { font: 700 13px 'DM Mono'; color: #168c91; }
+.export-progress-bytes { color: var(--muted); }
+.export-preview-total { margin: 0 0 6px; color: var(--ink); font: 800 30px 'Manrope', sans-serif; }
+.export-preview-total small { margin-right: 6px; color: var(--muted); font: 500 10px 'Manrope', sans-serif; }
+.export-breakdown { margin-top: 18px; }
+.export-breakdown > strong { display: block; margin-bottom: 8px; color: var(--muted); font-size: 9px; font-weight: 800; text-transform: uppercase; }
+.export-breakdown-row { display: grid; grid-template-columns: 92px 1fr 54px; align-items: center; gap: 9px; margin-bottom: 6px; font-size: 10px; }
+.export-breakdown-row span { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.export-breakdown-row i { display: block; height: 7px; border-radius: 4px; background: #edf0ed; overflow: hidden; }
+.export-breakdown-row i > b { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--cyan), #8be3d1); }
+.export-breakdown-row em { text-align: left; color: var(--muted); font: 700 10px 'DM Mono'; font-style: normal; }
+.export-effective { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 20px 0 0; padding-top: 15px; border-top: 1px solid #edf0ed; }
+.export-effective span, .export-effective dd { display: block; }
+.export-effective dt { color: var(--muted); font-size: 9px; font-weight: 700; }
+.export-effective dd { margin: 5px 0 0; color: var(--ink); font: 700 10px 'DM Mono'; overflow-wrap: anywhere; }
+@media (max-width: 1100px) { .export-layout { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .export-date-row, .export-select-row { grid-template-columns: 1fr; }.export-effective { grid-template-columns: 1fr; } }
+.theme-dark .export-filters, .theme-dark .export-side > .panel { background: #18282f; }
+.theme-dark .export-date-row input, .theme-dark .export-select-row select, .theme-dark .export-search input, .theme-dark .export-format-grid label, .theme-dark .export-column-actions button { background: #14232a; color: var(--ink); }
+.theme-dark .export-format-grid label.selected { background: #14232a; }
+.theme-dark .export-progress-track, .theme-dark .export-breakdown-row i { background: #26383e; }
+
+/* --------------------------------------------------------------------------
+   AI Insights panel (post detail)
+   -------------------------------------------------------------------------- */
+.dialog-ai-insights { margin: 16px 0; padding: 16px; }
+.ai-status-pill { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; font-size: 9px; font-weight: 800; white-space: nowrap; color: #5b6b6a; background: #eef2f1; }
+.ai-status-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ai-status-pill.done { color: #168c91; background: #e9f8f5; }
+.ai-status-pill.processing { color: #a46e12; background: #ffedbc; }
+.ai-status-pill.pending { color: #238e93; background: #e4f6f3; }
+.ai-status-pill.failed { color: #c45e52; background: #ffebe7; }
+.ai-status-pill.skipped { color: #6b7a79; background: #f0f2f1; }
+.ai-summary { margin: 0; color: var(--ink); font-size: 11.5px; line-height: 1.85; }
+.ai-summary.is-empty { color: var(--muted); font-style: italic; }
+
+/* --------------------------------------------------------------------------
+   Printed analysis report
+
+   Only `.print-sheet` is visible in print. Isolation uses `visibility`
+   rather than `display` because `visibility` is inherited *and*
+   overridable: the report can turn itself back on from inside five levels of
+   hidden ancestors, which `display: none` makes impossible in pure CSS.
+
+   The page number is a two-pronged attempt. `@page` margin boxes with
+   `counter(page)` are the correct mechanism but only Firefox implements
+   them; Chromium silently drops the whole margin-box rule. The `position:
+   fixed` footer is the Chromium fallback and does repeat on every page, but
+   it cannot count pages, so it carries the confidentiality notice only.
+   -------------------------------------------------------------------------- */
+.print-sheet { display: none; }
+
+@page { size: A4; margin: 16mm 14mm 18mm; }
+
+@media print {
+  /* Progressively enhanced page numbers. Ignored wholesale by Chromium. */
+  @page {
+    @bottom-left { content: 'SignalDesk'; font: 8pt 'Manrope', sans-serif; color: #7d8b88; }
+    @bottom-right { content: 'Page ' counter(page) ' / ' counter(pages); font: 8pt 'Manrope', sans-serif; color: #7d8b88; }
+  }
+
+  html, body { background: #fff !important; }
+  html.printing-report, body.printing-report { background: #fff !important; height: auto !important; overflow: visible !important; }
+  body.printing-report *, body.printing-report *::before, body.printing-report *::after { visibility: hidden !important; }
+  body.printing-report .print-sheet, body.printing-report .print-sheet * , body.printing-report .print-sheet *::before, body.printing-report .print-sheet *::after { visibility: visible !important; }
+
+  /* Undo the on-screen modal shell: the report is a normal document flow
+     block at this point, not a centred, scroll-clipped dialog. */
+  body.printing-report .modal-backdrop { position: static !important; display: block !important; inset: auto !important; padding: 0 !important; background: none !important; }
+  body.printing-report .post-dialog { display: block !important; width: auto !important; max-width: none !important; max-height: none !important; overflow: visible !important; padding: 0 !important; margin: 0 !important; background: #fff !important; border-radius: 0 !important; box-shadow: none !important; }
+  body.printing-report .print-sheet { display: block !important; color: #111 !important; font-size: 10.5pt; line-height: 1.6; }
+
+  /* Repeats on every page in Chromium, which is why the confidentiality
+     notice lives here rather than at the end of the report body. */
+  body.printing-report .print-footer { position: fixed !important; left: 0; right: 0; bottom: 0; display: flex !important; align-items: center; justify-content: space-between; padding-top: 6px; border-top: .5pt solid #cbd5d2; color: #7d8b88; font-size: 7.5pt; }
+
+  body.printing-report .print-header { display: flex !important; gap: 18px; align-items: flex-start; padding-bottom: 10px; border-bottom: 1.5pt solid #0f766e; }
+  body.printing-report .print-brand { display: flex !important; align-items: center; gap: 8px; flex: 0 0 auto; }
+  body.printing-report .print-brand .brand-mark { position: relative; width: 26px; height: 26px; border-radius: 7px; background: #0f766e; }
+  body.printing-report .print-brand .brand-mark > span { position: absolute; width: 8px; height: 8px; top: 7px; left: 7px; border-radius: 2px; background: #fff; }
+  body.printing-report .print-brand strong { font: 800 13pt 'Manrope', sans-serif; color: #0f172a; }
+  body.printing-report .print-brand strong span { color: #0f766e; }
+  body.printing-report .print-header-meta { min-width: 0; }
+  body.printing-report .print-header-meta h1 { margin: 0 0 3px; font: 800 15pt 'Manrope', sans-serif; line-height: 1.35; color: #0f172a; }
+  body.printing-report .print-subtitle { margin: 0 0 8px; color: #475569; font-size: 9pt; font-weight: 700; }
+  body.printing-report .print-facts { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0; }
+  body.printing-report .print-facts div { display: flex; gap: 5px; align-items: baseline; }
+  body.printing-report .print-facts dt { color: #7d8b88; font-size: 8pt; font-weight: 700; }
+  body.printing-report .print-facts dt::after { content: ':'; }
+  body.printing-report .print-facts dd { margin: 0; color: #1e293b; font-size: 8pt; }
+
+  body.printing-report .print-section { margin-top: 14px; page-break-inside: auto; }
+  body.printing-report .print-section h2 { margin: 0 0 6px; padding-bottom: 3px; border-bottom: .5pt solid #dbe4e2; color: #0f766e; font: 800 10.5pt 'Manrope', sans-serif; }
+  body.printing-report .print-summary { margin: 0; white-space: pre-wrap; color: #1e293b; }
+  body.printing-report .print-summary.is-empty { color: #7d8b88; font-style: italic; }
+  body.printing-report .print-tags { margin: 7px 0 0; color: #1e293b; font-size: 9pt; }
+  body.printing-report .print-table { width: 100%; border-collapse: collapse; }
+  body.printing-report .print-table th, body.printing-report .print-table td { border: .5pt solid #dbe4e2; padding: 4px 7px; text-align: start; font-size: 9pt; vertical-align: top; }
+  body.printing-report .print-table th { width: 34%; background: #f5f8f7; color: #475569; font-weight: 700; }
+  body.printing-report .print-content { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: #1e293b; }
+  body.printing-report .print-link { margin: 0; overflow-wrap: anywhere; color: #1e293b; font: 8.5pt 'DM Mono', monospace; }
+  /* Never orphan a heading at the foot of a page. */
+  body.printing-report .print-section h2 { page-break-after: avoid; break-after: avoid; }
+  body.printing-report .print-table tr { page-break-inside: avoid; break-inside: avoid; }
+}

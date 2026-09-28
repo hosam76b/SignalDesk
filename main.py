@@ -31,6 +31,7 @@ from app.api import users as users_routes
 from app.api import scraper as scraper_routes
 from app.api import ai_analysis as ai_routes
 from app.api import data_export as data_export_routes
+from app.api import export as export_routes
 from app.api import webhooks as webhook_routes
 from app.api import dashboard as dashboard_routes
 from app.api import monitoring as monitoring_routes
@@ -279,6 +280,7 @@ app.include_router(users_routes.router)
 app.include_router(scraper_routes.router)
 app.include_router(ai_routes.router)
 app.include_router(data_export_routes.router)
+app.include_router(export_routes.router)
 app.include_router(webhook_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(monitoring_routes.router)

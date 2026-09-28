@@ -43,6 +43,16 @@ class PostDetailOutput(BaseModel):
     extracted_ocr_text: str | None
     video_transcript: str | None
     media_status: str
+    # AI analysis output. The Insights panel and the print report both read
+    # these; because the route declares `response_model=PostDetailOutput`,
+    # FastAPI silently drops any column missing from this model, so omitting
+    # them here left the post detail response with nothing to print.
+    ai_summary: str | None
+    ai_status: str
+    ai_analyzed_at: datetime | None
+    violence_category: str | None
+    tags: list | None
+    raw_ai_response: dict | None
 
     model_config = ConfigDict(from_attributes=True)
 

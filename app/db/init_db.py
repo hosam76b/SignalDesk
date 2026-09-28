@@ -228,6 +228,28 @@ def migrate_topic_schema():
                 # write amplification on every status transition.
                 connection.execute(text("DROP INDEX ix_posts_ai_pending"))
 
+            # Export Data tab. Same rationale as the ORM declarations in
+            # app/models/post.py: ix_posts_ai_queue is partial to the
+            # unanalysed subset and keyed on `id`, so it cannot serve a
+            # `published_at` window or a `done`/`skipped` status filter.
+            for index_name, index_columns in (
+                ("ix_posts_export_date", ("published_at", "id")),
+                ("ix_posts_export_ai_date", ("ai_status", "published_at", "id")),
+            ):
+                if index_name in post_indexes:
+                    continue
+                missing = [c for c in index_columns if c not in post_columns]
+                if missing:
+                    logger.debug(
+                        "Skipping index %s; posts is missing column(s) %s",
+                        index_name,
+                        ", ".join(missing),
+                    )
+                    continue
+                connection.execute(
+                    text(f"CREATE INDEX {index_name} ON posts ({', '.join(index_columns)})")
+                )
+
         if "prompt_templates" in existing_tables:
             prompt_template_columns = {column["name"] for column in inspect(connection).get_columns("prompt_templates")}
             for column_name, column_type, default_value in (

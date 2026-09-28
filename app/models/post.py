@@ -114,6 +114,23 @@ class Post(Base):
             "id",
             sqlite_where=text("ai_status IN ('pending', 'failed')"),
         ),
+        # Export Data tab. The export is the one query in the app that filters
+        # on `published_at` across an arbitrary window, so it needs its own
+        # covering order rather than borrowing ix_posts_ai_queue, which is
+        # keyed on `id` and partial to the unanalysed subset.
+        #
+        # Leading column `published_at` makes the default "last N days" export
+        # an index range scan that already yields rows newest-first, so the
+        # ORDER BY costs no temp B-tree sort. `id` is the tie-breaker, matching
+        # the query's `published_at DESC, id DESC`.
+        Index("ix_posts_export_date", "published_at", "id"),
+        # Same export, narrowed to one AI status: `ai_status` first so SQLite
+        # seeks straight to the requested subset, then walks the window. A
+        # filter on `ai_status` alone cannot use ix_posts_export_date, and
+        # ix_posts_ai_queue's partial predicate does not cover `done`,
+        # `skipped` or `processing` -- without this the status-filtered export
+        # degrades into a scan of the whole posts table.
+        Index("ix_posts_export_ai_date", "ai_status", "published_at", "id"),
     )
 
     def __repr__(self) -> str:

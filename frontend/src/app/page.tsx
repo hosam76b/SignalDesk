@@ -13,6 +13,7 @@ import {
   Edit3,
   Eye,
   EyeOff,
+  FileDown,
   FileText,
   Globe2,
   LayoutDashboard,
@@ -22,6 +23,7 @@ import {
   Menu,
   PanelLeftClose,
   Plus,
+  Printer,
   Radio,
   Search,
   Settings2,
@@ -39,6 +41,7 @@ import { TopicAdminHub as TopicManagement } from "./topic-admin-hub";
 import { AuditDashboard } from "./audit-dashboard";
 import { PropagationGraphView } from "./propagation-graph-view";
 import { SetupWizard } from "./setup-wizard";
+import { ExportDataPanel } from "./export-data";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? (
   typeof window !== "undefined" && window.location.port !== "8000"
@@ -58,6 +61,7 @@ type Page =
   | "automation"
   | "knowledge"
   | "audit"
+  | "export"
   | "prompts"
   | "approvals"
   | "proposals"
@@ -187,6 +191,7 @@ const labels = {
     automation: "مراقبة الأتمتة",
     knowledge: "قاعدة المعرفة",
     audit: "سجلات التدقيق",
+    export: "تصدير البيانات",
     add: "إضافة جديدة",
     sources: "الروابط والمصادر",
     keywords: "الكلمات المفتاحية",
@@ -205,6 +210,7 @@ const labels = {
     automation: "Automation monitor",
     knowledge: "Knowledge base",
     audit: "Audit logs",
+    export: "Export data",
     add: "Add new",
     sources: "Sources",
     keywords: "Keywords",
@@ -1207,9 +1213,105 @@ type PostDetail = Post & {
   extracted_ocr_text?: string | null;
   video_transcript?: string | null;
   media_status?: "pending" | "completed" | "failed" | string;
+  // AI analysis lifecycle + output. Declared on the backend's
+  // `PostDetailOutput`; without them here the Insights panel and the printed
+  // report would have nothing to show.
+  ai_summary?: string | null;
+  ai_status?: "pending" | "processing" | "done" | "failed" | "skipped" | string;
+  ai_analyzed_at?: string | null;
+  violence_category?: string | null;
+  tags?: string[] | null;
+  raw_ai_response?: Record<string, unknown> | null;
 };
 
 const SEVERITY_METER: Record<string, number> = { low: 25, medium: 50, high: 75, critical: 100 };
+
+// The AI analysis lifecycle, as the backend names it in
+// `app/models/post.py::AI_STATUS_*`. `pending`/`processing` are the two the
+// background queue moves a post through; the rest are terminal states.
+const AI_STATUS_LABEL: Record<Lang, Record<string, string>> = {
+  ar: {
+    pending: "في الانتظار",
+    processing: "قيد التحليل",
+    done: "تم التحليل",
+    failed: "فشل التحليل",
+    skipped: "تم التخطي",
+  },
+  en: {
+    pending: "Pending",
+    processing: "Processing",
+    done: "Analyzed",
+    failed: "Analysis failed",
+    skipped: "Skipped",
+  },
+};
+
+// What to show instead of a summary when there isn't one. "pending" and
+// "processing" are temporary states, so they get a different message from the
+// two that will never produce one.
+const AI_STATUS_EMPTY: Record<Lang, Record<string, string>> = {
+  ar: {
+    pending: "بانتظار دور التحليل.",
+    processing: "يجري تحليل هذا الخبر الآن.",
+    failed: "لم يكتمل تحليل هذا الخبر. يمكن إعادة المحاولة من الموجز.",
+    skipped: "تم تخطي هذا الخبر في التحليل.",
+  },
+  en: {
+    pending: "Waiting its turn in the analysis queue.",
+    processing: "This item is being analyzed right now.",
+    failed: "Analysis did not complete. It can be retried from the feed.",
+    skipped: "This item was skipped by the analyzer.",
+  },
+};
+
+function printDate(value: string | null | undefined, lang: Lang, fallback: string): string {
+  if (!value) return fallback;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return fallback;
+  return parsed.toLocaleString(lang === "ar" ? "ar-EG" : "en-US", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatTagList(tags: string[] | null | undefined): string[] {
+  return Array.isArray(tags) ? tags.map((tag) => String(tag)).filter(Boolean) : [];
+}
+
+// Printing isolates the report by hiding everything else with `visibility`
+// rather than `display`. `visibility` is inherited *and* overridable, so the
+// report can set `visibility: visible` and escape a hidden ancestor without
+// any ancestor needing to be re-enabled; `display: none` cannot be undone
+// from a descendant, and the modal is nested five levels deep inside the app
+// shell. The `.printing-report` class on <body> is the switch, and it is
+// removed on every exit path so a cancelled print cannot leave the screen
+// stuck in report mode.
+function printPostReport() {
+  const body = document.body;
+  body.classList.add("printing-report");
+  const cleanup = () => {
+    body.classList.remove("printing-report");
+    media.removeEventListener("change", onChange);
+  };
+  // `matchMedia` fires when the print dialog opens and closes, which covers the
+  // browsers that skip `afterprint` on a cancelled print.
+  const media = window.matchMedia("print");
+  const onChange = () => {
+    if (!media.matches) cleanup();
+  };
+  media.addEventListener("change", onChange);
+  window.addEventListener("afterprint", cleanup, { once: true });
+  try {
+    window.print();
+  } finally {
+    // `print()` is synchronous in Chrome and Safari but not everywhere; this
+    // guarantees the class comes off even if no event fires at all.
+    window.setTimeout(cleanup, 1500);
+  }
+}
 
 function extractYoutubeVideoId(url: string | null | undefined): string | null {
   if (!url) return null;
@@ -1254,6 +1356,7 @@ function PostDetailDialog({
   const [logs, setLogs] = useState<AuditRecord[]>([]);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [detail, setDetail] = useState<PostDetail>(post);
   const [tab, setTab] = useState<"original" | "ocr" | "transcript">("original");
   const [zoomImage, setZoomImage] = useState<string | null>(null);
@@ -1303,7 +1406,59 @@ function PostDetailDialog({
     : detail.entities && typeof detail.entities === "object"
       ? Object.keys(detail.entities as Record<string, unknown>)
       : [];
+  const analysisTags = formatTagList(detail.tags);
+  const aiStatus = detail.ai_status ?? "pending";
+  const aiStatusLabel = AI_STATUS_LABEL[lang][aiStatus] ?? aiStatus;
+  const aiEmptyLabel = AI_STATUS_EMPTY[lang][aiStatus];
   const meterValue = SEVERITY_METER[detail.severity_level ?? ""] ?? 0;
+  // Stamped once per dialog open so the printed header and the body agree on
+  // the instant the report was generated.
+  const [reportStamp] = useState(() => new Date().toISOString());
+  const reportDate = printDate(reportStamp, lang, reportStamp.slice(0, 16).replace("T", " "));
+
+  // The server-side PDF is produced from the same post by the analysis
+  // service, so it carries the Arabic shaping and the branded footer that the
+  // browser print path cannot produce.
+  const downloadPostPdf = async () => {
+    if (downloadingPdf) return;
+    setDownloadingPdf(true);
+    setError("");
+    try {
+      const response = await fetch(`${API}/api/v1/posts/export/pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ post_ids: [post.id], lang }),
+      });
+      if (!response.ok) throw new ApiError(response.status);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `signaldesk_post_${post.id}.pdf`;
+      anchor.click();
+      window.URL.revokeObjectURL(url);
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : (lang === "ar" ? "تعذر تنزيل التقرير." : "Unable to download the report."),
+      );
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const reportRows: Array<[string, string]> = [
+    [lang === "ar" ? "حالة التحليل" : "Analysis status", aiStatusLabel],
+    [lang === "ar" ? "مستوى الخطورة" : "Severity", detail.severity_level ?? (lang === "ar" ? "غير محلل" : "Unanalyzed")],
+    [lang === "ar" ? "تاريخ التحليل" : "Analysed at", printDate(detail.ai_analyzed_at, lang, lang === "ar" ? "لم يُحلَّل بعد" : "Not analysed yet")],
+    [lang === "ar" ? "المشاعر" : "Sentiment", detail.sentiment ? `${detail.sentiment}${detail.sentiment_score != null ? ` (${detail.sentiment_score})` : ""}` : (lang === "ar" ? "غير محدد" : "Undetermined")],
+    [lang === "ar" ? "تصنيف العنف" : "Violence category", detail.violence_category ?? (lang === "ar" ? "غير مصنّف" : "Not classified")],
+    [lang === "ar" ? "الوسوم" : "Tags", analysisTags.length ? analysisTags.join(lang === "ar" ? "، " : ", ") : (lang === "ar" ? "لا توجد وسوم" : "No tags")],
+    [lang === "ar" ? "المصدر" : "Source", `${post.platform} · ${post.author}`],
+    [lang === "ar" ? "تاريخ النشر" : "Published at", printDate(detail.published_at, lang, (lang === "ar" ? "غير معروف" : "Unknown"))],
+  ];
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="post-dialog" onClick={(event) => event.stopPropagation()}>
@@ -1333,6 +1488,23 @@ function PostDetailDialog({
             onClick={() => mark("is_dangerous")}
           >
             <AlertTriangle size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title={lang === "ar" ? "طباعة تقرير التحليل" : "Print analysis report"}
+            aria-label={lang === "ar" ? "طباعة تقرير التحليل" : "Print analysis report"}
+            onClick={printPostReport}
+          >
+            <Printer size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title={lang === "ar" ? "تنزيل التقرير PDF" : "Download report as PDF"}
+            aria-label={lang === "ar" ? "تنزيل التقرير PDF" : "Download report as PDF"}
+            disabled={downloadingPdf}
+            onClick={downloadPostPdf}
+          >
+            {downloadingPdf ? <span className="loading-spinner" /> : <FileDown size={16} />}
           </button>
         </div>
         {error && <div className="data-error">{error}</div>}
@@ -1412,6 +1584,29 @@ function PostDetailDialog({
             </div>
           )}
         </div>
+        <div className="panel dialog-ai-insights">
+          <div className="panel-heading">
+            <div>
+              <p className="eyebrow">AI insights</p>
+              <h3>{lang === "ar" ? "رؤى الذكاء الاصطناعي" : "AI insights"}</h3>
+            </div>
+            <span className={`ai-status-pill ${aiStatus}`}>{aiStatusLabel}</span>
+          </div>
+          {detail.ai_summary ? (
+            <p className="ai-summary">{detail.ai_summary}</p>
+          ) : (
+            <p className="ai-summary is-empty">
+              {aiEmptyLabel ?? (lang === "ar" ? "لا يوجد ملخص." : "No summary available.")}
+            </p>
+          )}
+          {analysisTags.length > 0 && (
+            <div className="entity-tags">
+              {analysisTags.map((tag) => (
+                <span className="badge badge-neutral" key={tag}>{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
         {post.post_url && (
           <a
             className="wide-ghost"
@@ -1457,12 +1652,134 @@ function PostDetailDialog({
             <div className="empty-state">{lang === "ar" ? "لا يوجد نشاط مسجل لهذا الخبر." : "No recorded activity for this news item."}</div>
           )}
         </div>
+        <PrintSheet
+          lang={lang}
+          post={post}
+          detail={detail}
+          aiStatusLabel={aiStatusLabel}
+          aiEmptyLabel={aiEmptyLabel}
+          analysisTags={analysisTags}
+          reportDate={reportDate}
+          rows={reportRows}
+        />
       </div>
       {zoomImage && (
         <div className="modal-backdrop image-lightbox" onClick={() => setZoomImage(null)}>
           <img src={zoomImage} alt={lang === "ar" ? "تكبير الصورة" : "Zoomed image"} onClick={(event) => event.stopPropagation()} />
         </div>
       )}
+    </div>
+  );
+}
+
+function PrintSheet({
+  lang,
+  post,
+  detail,
+  aiStatusLabel,
+  aiEmptyLabel,
+  analysisTags,
+  reportDate,
+  rows,
+}: {
+  lang: Lang;
+  post: Post;
+  detail: PostDetail;
+  aiStatusLabel: string;
+  aiEmptyLabel?: string;
+  analysisTags: string[];
+  reportDate: string;
+  rows: Array<[string, string]>;
+}) {
+  // Hidden on screen, the only thing `window.print()` emits. Kept as a separate
+  // component so the dialog's interactive chrome (close button, tabs, media
+  // players, activity log) can never leak into the printed artefact.
+  return (
+    <div className="print-sheet">
+      <header className="print-header">
+        <div className="print-brand">
+          <span className="brand-mark">
+            <span />
+          </span>
+          <strong>
+            signal<span>desk</span>
+          </strong>
+        </div>
+        <div className="print-header-meta">
+          <h1>
+            {post.title || (lang === "ar" ? "منشور بدون عنوان" : "Untitled post")}
+          </h1>
+          <p className="print-subtitle">
+            {lang === "ar" ? "تقرير تحليل الذكاء الاصطناعي" : "AI analysis report"}
+          </p>
+          <dl className="print-facts">
+            <div>
+              <dt>{lang === "ar" ? "المصدر" : "Source"}</dt>
+              <dd>{post.platform} · {post.author}</dd>
+            </div>
+            <div>
+              <dt>{lang === "ar" ? "تاريخ التقرير" : "Report date"}</dt>
+              <dd>{reportDate}</dd>
+            </div>
+            <div>
+              <dt>{lang === "ar" ? "حالة التحليل" : "Analysis status"}</dt>
+              <dd>{aiStatusLabel}</dd>
+            </div>
+          </dl>
+        </div>
+      </header>
+
+      <section className="print-section">
+        <h2>{lang === "ar" ? "ملخص الذكاء الاصطناعي" : "AI summary"}</h2>
+        {detail.ai_summary ? (
+          <p className="print-summary">{detail.ai_summary}</p>
+        ) : (
+          <p className="print-summary is-empty">
+            {aiEmptyLabel ?? (lang === "ar" ? "لا يوجد ملخص." : "No summary available.")}
+          </p>
+        )}
+        {analysisTags.length > 0 && (
+          <p className="print-tags">
+            <strong>{lang === "ar" ? "الوسوم" : "Tags"}: </strong>
+            {analysisTags.join(lang === "ar" ? "، " : ", ")}
+          </p>
+        )}
+      </section>
+
+      <section className="print-section">
+        <h2>{lang === "ar" ? "التصنيف" : "Classification"}</h2>
+        <table className="print-table">
+          <tbody>
+            {rows.map(([label, value]) => (
+              <tr key={label}>
+                <th scope="row">{label}</th>
+                <td>{value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+
+      <section className="print-section">
+        <h2>{lang === "ar" ? "النص الأصلي" : "Original text"}</h2>
+        <p className="print-content">{post.content}</p>
+      </section>
+
+      {post.post_url && (
+        <section className="print-section">
+          <h2>{lang === "ar" ? "الرابط الأصلي" : "Source link"}</h2>
+          <p className="print-link">{post.post_url}</p>
+        </section>
+      )}
+
+      <footer className="print-footer">
+        <span>
+          {lang === "ar"
+            ? "سري — للاستخدام الداخلي فقط"
+            : "Confidential — internal use only"}
+        </span>
+        <span className="print-footer-page" />
+      </footer>
     </div>
   );
 }
@@ -3205,7 +3522,7 @@ export default function Home() {
   const t = labels[lang];
   const allowedNavIds: readonly string[] = isRestricted
     ? ["overview", "feed"]
-    : ["overview", "feed", "graph", "automation", "spider", "knowledge", "management", "audit", "prompts"];
+    : ["overview", "feed", "graph", "automation", "spider", "knowledge", "management", "audit", "export", "prompts"];
   const navigationWithAdmin = [
     ...navigation[lang].filter(([id]) => allowedNavIds.includes(id)),
     ...(isRestricted ? ([["proposals", t.proposals, Plus]] as const) : []),
@@ -3344,6 +3661,8 @@ export default function Home() {
           <UserManagement request={adminRequest} role={role} lang={lang} />
         ) : page === "audit" ? (
           <AuditDashboard request={adminRequest} role={role} lang={lang} />
+        ) : page === "export" ? (
+          <ExportDataPanel token={token} lang={lang} />
         ) : page === "approvals" && isManager ? (
           <ApprovalsPanel token={token} lang={lang} />
         ) : page === "proposals" && isRestricted ? (
@@ -3383,6 +3702,7 @@ const navigation = {
     ["knowledge", "قاعدة المعرفة", Database],
     ["management", "الروابط والكلمات المفتاحية", UserCog],
     ["audit", "سجلات التدقيق", ShieldCheck],
+    ["export", "تصدير البيانات", FileDown],
     ["prompts", "إعدادات الذكاء الاصطناعي", Settings2],
   ] as const,
   en: [
@@ -3394,6 +3714,7 @@ const navigation = {
     ["knowledge", "Knowledge base", Database],
     ["management", "Sources & keywords", UserCog],
     ["audit", "Audit logs", ShieldCheck],
+    ["export", "Export data", FileDown],
     ["prompts", "AI settings", Settings2],
   ] as const,
 };
