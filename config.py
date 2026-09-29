@@ -3,6 +3,7 @@ Application configuration management using Pydantic Settings.
 Loads environment variables securely from .env file.
 """
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +14,17 @@ class Settings(BaseSettings):
     Application settings loaded from environment variables.
     Uses pydantic-settings for secure configuration management.
     """
+
+    # Single source of truth for the port the server listens on.
+    # NSSM hands the service this number through AppEnvironmentExtra
+    # (SIGNALDESK_PORT=8000) and the very same value is what uvicorn binds
+    # via AppParameters (--port). main.py forwards it to the socket self-check,
+    # so the probe can never be pointed at a port this process does not serve.
+    # Plain PORT is accepted as an alias for non-service runs.
+    port: int = Field(
+        default=8000,
+        validation_alias=AliasChoices("SIGNALDESK_PORT", "PORT"),
+    )
 
     # Database Configuration
     db_url: str = "postgresql://user:password@localhost:5432/media_monitor"

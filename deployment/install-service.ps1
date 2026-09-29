@@ -55,12 +55,18 @@ if (-not $NssmPath) {
 }
 if (-not $NssmPath -or -not (Test-Path $NssmPath)) { throw "NSSM executable was not found after download. Check Internet access or rerun with -NssmPath <path-to-nssm.exe>." }
 
+# One port, defined once. It reaches the process as SIGNALDESK_PORT, reaches
+# uvicorn as --port, and main.py hands that same value to the socket self-check
+# so the probe can never target a port the service is not serving.
+$port = 8000
+
 if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
     & $NssmPath stop $ServiceName
     & $NssmPath remove $ServiceName confirm
 }
-& $NssmPath install $ServiceName $python "-m uvicorn main:app --host 0.0.0.0 --port 8000"
+& $NssmPath install $ServiceName $python "-m uvicorn main:app --host 0.0.0.0 --port $port"
 & $NssmPath set $ServiceName AppDirectory $projectRoot
+& $NssmPath set $ServiceName AppEnvironmentExtra "SIGNALDESK_PORT=$port"
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START
 & $NssmPath set $ServiceName AppStdout (Join-Path $logs "service_stdout.log")
 & $NssmPath set $ServiceName AppStderr (Join-Path $logs "service_stderr.log")
@@ -70,7 +76,7 @@ if (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) {
 & sc.exe failure $ServiceName reset= 86400 actions= restart/5000/restart/5000/restart/5000 | Out-Null
 
 Get-NetFirewallRule -DisplayName "SignalDesk Server Access" -ErrorAction SilentlyContinue | Remove-NetFirewallRule
-New-NetFirewallRule -DisplayName "SignalDesk Server Access" -Direction Inbound -LocalPort 8000 -Protocol TCP -Action Allow | Out-Null
+New-NetFirewallRule -DisplayName "SignalDesk Server Access" -Direction Inbound -LocalPort $port -Protocol TCP -Action Allow | Out-Null
 & $NssmPath start $ServiceName
 
 $desktop = [Environment]::GetFolderPath("Desktop")

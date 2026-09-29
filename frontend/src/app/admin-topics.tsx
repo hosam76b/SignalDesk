@@ -3,8 +3,9 @@
 
 import { useEffect, useState } from "react";
 import { Check, Edit3, FileText, Plus, Trash2, X } from "lucide-react";
+import { apiBase } from "./api-client";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+const API = apiBase();
 
 type Role = "super_admin" | "topic_admin" | "topic_manager" | "topic_monitor";
 type Lang = "ar" | "en";

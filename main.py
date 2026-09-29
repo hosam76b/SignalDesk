@@ -130,7 +130,13 @@ async def lifespan(app: FastAPI):
         # process would otherwise stay alive, keep the SQLite write lock held
         # and serve nothing while the service manager still reports "Running".
         # Started last so it cannot race the socket it is about to probe.
-        self_check.start()
+        #
+        # The probe target is passed in rather than read from SELF_CHECK_PORT:
+        # SIGNALDESK_PORT (NSSM AppEnvironmentExtra -> settings.port) is the
+        # same number uvicorn binds, so the two can no longer drift apart and
+        # produce a false "the accept loop is dead" verdict on a live server.
+        _bind_port = int(getattr(settings, "port", 8000) or 8000)
+        self_check.start(port=_bind_port)
 
         if settings.scraping_enabled and "PYTEST_CURRENT_TEST" not in os.environ:
             scraping_task = asyncio.create_task(_background_scraping_loop())

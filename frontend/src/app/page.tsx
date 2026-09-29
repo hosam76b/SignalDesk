@@ -37,17 +37,14 @@ import {
   X,
 } from "lucide-react";
 import { UserManagement } from "./admin-users";
+import { apiBase } from "./api-client";
 import { TopicAdminHub as TopicManagement } from "./topic-admin-hub";
 import { AuditDashboard } from "./audit-dashboard";
 import { PropagationGraphView } from "./propagation-graph-view";
 import { SetupWizard } from "./setup-wizard";
 import { ExportDataPanel } from "./export-data";
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? (
-  typeof window !== "undefined" && window.location.port !== "8000"
-    ? "http://127.0.0.1:8000"
-    : ""
-);
+const API = apiBase();
 type Lang = "ar" | "en";
 type Page =
   | "overview"

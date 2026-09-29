@@ -293,3 +293,70 @@ def test_stop_leaves_no_running_task(monkeypatch):
         return check.stats()["running"]
 
     assert asyncio.run(run()) is False
+
+
+# ---------------------------------------------------------------------------
+# Port resolution: the single source of truth must win over the setting.
+# ---------------------------------------------------------------------------
+
+def test_start_prefers_the_passed_port_over_the_configured_one(monkeypatch):
+    """main.py hands over the port uvicorn binds, so that one must be probed.
+
+    This is the regression that killed a healthy server: the probe pointed at
+    8010 while uvicorn served 8000, and three probes later the process exited.
+    """
+    configured = _free_port()
+    authoritative = _free_port()
+    _patch_settings(monkeypatch, self_check_port=configured, self_check_interval_seconds=30)
+
+    async def run():
+        check = SocketSelfCheck(exit_action=lambda _code: None)
+        check.start(port=authoritative)
+        port = check.stats()["port"]
+        await check.stop()
+        return port
+
+    assert asyncio.run(run()) == authoritative
+    assert authoritative != configured
+
+
+def test_start_falls_back_to_the_configured_port_when_none_is_passed(monkeypatch):
+    """Non-service runs (tests, manual uvicorn) keep working from settings."""
+    configured = _free_port()
+    _patch_settings(monkeypatch, self_check_port=configured, self_check_interval_seconds=30)
+
+    async def run():
+        check = SocketSelfCheck(exit_action=lambda _code: None)
+        check.start()
+        port = check.stats()["port"]
+        await check.stop()
+        return port
+
+    assert asyncio.run(run()) == configured
+
+
+def test_start_defaults_to_8000_when_nothing_is_configured(monkeypatch):
+    _patch_settings(monkeypatch, self_check_port=0, self_check_interval_seconds=30)
+
+    async def run():
+        check = SocketSelfCheck(exit_action=lambda _code: None)
+        check.start()
+        port = check.stats()["port"]
+        await check.stop()
+        return port
+
+    assert asyncio.run(run()) == 8000
+
+
+def test_a_port_disagreement_is_logged_not_fatal(monkeypatch, caplog):
+    """A stale SELF_CHECK_PORT must be visible instead of silently killing us."""
+    _patch_settings(monkeypatch, self_check_port=_free_port(), self_check_interval_seconds=30)
+
+    async def run():
+        check = SocketSelfCheck(exit_action=lambda _code: None)
+        check.start(port=_free_port())
+        await check.stop()
+
+    with caplog.at_level("WARNING", logger=self_check_module.__name__):
+        asyncio.run(run())
+    assert any("differs from SELF_CHECK_PORT" in r.message for r in caplog.records)

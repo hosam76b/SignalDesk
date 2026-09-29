@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Check, Download, FileDown, Loader2 } from 'lucide-react'
+import { apiUrl as buildApiUrl } from './api-client'
 
 type Lang = 'ar' | 'en'
 type Format = 'csv' | 'json' | 'xlsx' | 'pdf'
@@ -95,10 +96,7 @@ const GROUP_FALLBACK: Record<Lang, string> = { ar: 'أخرى', en: 'Other' }
 const POLL_INTERVAL_MS = 450
 
 function apiUrl(path: string): string {
-  const base = process.env.NEXT_PUBLIC_API_URL ?? (
-    typeof window !== 'undefined' && window.location.port !== '8000' ? 'http://127.0.0.1:8000' : ''
-  )
-  return `${base}${path}`
+  return buildApiUrl(path)
 }
 
 async function readError(response: Response, lang: Lang): Promise<Error> {

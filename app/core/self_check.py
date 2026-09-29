@@ -32,6 +32,17 @@ service comes back within seconds rather than staying wedged indefinitely.
 
 The exit action is injectable so the behaviour can be tested without killing
 the test runner.
+
+Single source of truth for the port
+-----------------------------------
+The probe must target the port this process actually binds, and that number is
+now passed in (``start(port=...)``) from ``main.py``, which reads it from
+``SIGNALDESK_PORT`` -- the same value NSSM hands to uvicorn's ``--port``. A
+hard-coded default here is what made the loop kill a perfectly healthy server:
+the probe was pointed at 8010 while uvicorn served 8000, so three probes found
+no listener, the check declared a dead accept loop, and the process exited
+while it was still serving traffic. The configured value is only a fallback
+now, and any disagreement between the two is logged instead of being fatal.
 """
 
 from __future__ import annotations
@@ -44,6 +55,10 @@ from typing import Callable
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+#: Last-resort probe target, used only when neither the caller nor the settings
+#: supply one. Never the normal path: main.py always passes the bound port.
+_DEFAULT_PORT = 8000
 
 #: Minimal request that forces a real response. HTTP/1.0 plus ``Connection:
 #: close`` makes the server close the connection after replying, so the read
@@ -97,30 +112,64 @@ class SocketSelfCheck:
     ) -> None:
         self._exit = exit_action
         self._task: asyncio.Task | None = None
+        self._port: int = _DEFAULT_PORT
         self._consecutive_failures = 0
         self._probes = 0
         self._failures = 0
 
     # -- lifecycle -----------------------------------------------------
-    def start(self) -> bool:
-        """Start the loop. Returns False when disabled or already running."""
+    def start(self, port: int | None = None) -> bool:
+        """Start the loop. Returns False when disabled or already running.
+
+        ``port`` is the port uvicorn binds and must be the authoritative one.
+        Resolution order: the explicit argument, then ``SELF_CHECK_PORT`` from
+        the environment, then the built-in default. Passing it explicitly is
+        what keeps the probe from drifting onto a port this process does not
+        serve; a disagreement with the configured value is logged loudly
+        because that disagreement is the exact cause of a false "the accept
+        loop is dead" verdict.
+        """
         if not bool(getattr(settings, "self_check_enabled", True)):
             logger.info("Socket self-check disabled; relying on external monitoring")
             return False
         if self._task is not None and not self._task.done():
             return False
+        configured = getattr(settings, "self_check_port", None)
+        self._port = self._resolve_port(port, configured)
         self._consecutive_failures = 0
         self._task = asyncio.get_running_loop().create_task(
             self._run(), name="socket-self-check"
         )
         logger.info(
-            "Socket self-check started: %s:%s every %ss, exit after %s failure(s)",
+            "Socket self-check started: %s:%s every %ss, exit after %s failure(s) "
+            "(port source: %s)",
             getattr(settings, "self_check_host", "127.0.0.1"),
-            getattr(settings, "self_check_port", 8000),
+            self._port,
             getattr(settings, "self_check_interval_seconds", 30),
             getattr(settings, "self_check_failure_threshold", 3),
+            "argument" if port else "settings" if configured else "default",
         )
         return True
+
+    @staticmethod
+    def _resolve_port(port: int | None, configured: int | None) -> int:
+        """Pick the probe target and warn when the two sources disagree."""
+        if port:
+            resolved = int(port)
+            if configured and int(configured) != resolved:
+                logger.warning(
+                    "Self-check port %s (passed by the caller, i.e. the port "
+                    "uvicorn binds) differs from SELF_CHECK_PORT=%s in the "
+                    "environment; probing %s. Point SELF_CHECK_PORT at the "
+                    "bound port too, or the next reader will be misled.",
+                    resolved,
+                    configured,
+                    resolved,
+                )
+            return resolved
+        if configured:
+            return int(configured)
+        return _DEFAULT_PORT
 
     async def stop(self) -> None:
         """Cancel the loop and wait for it to unwind."""
@@ -148,7 +197,9 @@ class SocketSelfCheck:
 
     async def _run(self) -> None:
         host = str(getattr(settings, "self_check_host", "127.0.0.1") or "127.0.0.1")
-        port = int(getattr(settings, "self_check_port", 8000) or 8000)
+        # Read through self._port rather than settings: start() already
+        # resolved the authoritative target from the caller.
+        port = self._port
         # The first probe is delayed: the socket is guaranteed to be listening
         # by the time the lifespan yields, but a probe issued in the same tick
         # would race the server task that is still entering its accept loop.
@@ -194,6 +245,7 @@ class SocketSelfCheck:
     def stats(self) -> dict[str, int | bool]:
         return {
             "running": self._task is not None and not self._task.done(),
+            "port": self._port,
             "probes": self._probes,
             "failures": self._failures,
             "consecutive_failures": self._consecutive_failures,
