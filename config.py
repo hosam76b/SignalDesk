@@ -105,7 +105,20 @@ class Settings(BaseSettings):
     youtube_api_key: str = ""
     apify_api_token: str = ""
     apify_actor_id: str = ""
+    # Caps how many dataset items a single actor run may produce. Passed as
+    # Apify's `maxItems` so one over-eager actor cannot bill or return an
+    # unbounded batch that then has to be normalized, de-duplicated and
+    # re-queued. An explicit `maxItems` in a caller's actor_input wins.
+    apify_max_items_per_run: int = Field(
+        default=25,
+        validation_alias=AliasChoices("APIFY_MAX_ITEMS_PER_RUN"),
+    )
     apify_facebook_actor_id: str = ""
+    # JSON object template for a community Facebook actor. Placeholders:
+    # {url} = source URL, {max_items} = apify_max_items_per_run. Used by
+    # _build_payload() when set; empty falls back to the official
+    # startUrls/maxItems shape.
+    apify_facebook_actor_input: str = ""
     apify_instagram_actor_id: str = ""
     apify_x_actor_id: str = ""
     apify_tiktok_actor_id: str = ""

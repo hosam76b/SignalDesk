@@ -74,10 +74,13 @@ class ScraperService:
                 return meta_result
             logger.warning("Meta Graph API failed; falling back to Apify: %s", meta_result.get("error"))
         if platform in APIFY_PLATFORMS and self.apify.is_configured:
+            # No hardcoded resultsLimit here: it silently overrode
+            # apify_max_items_per_run and doubled the billed item count.
+            # _build_payload() applies the configured cap using whichever key
+            # the actor's schema declares.
             return await self.apify.scrape_social_source(
                 platform,
                 target,
-                {"startUrls": [{"url": target}], "resultsLimit": 50},
                 actor_id=apify_actor_id,
             )
         if use_apify and self.apify.is_configured:
@@ -409,14 +412,48 @@ class ScraperService:
         content = ScraperService._text(item, "raw_text", "message", "postText", "content", "text", "caption", "description", "selftext", "body")
         title = ScraperService._text(item, "title", "headline")
         post_url = ScraperService._text(item, "post_url", "url", "link", "permalink", "postUrl", default=source_url)
-        external_id = ScraperService._text(item, "external_id", "id", "shortcode")
+        # Apify actors name the platform id differently per store listing:
+        # `post_id` (Facebook page actors), `shortcode` (Instagram), `id`
+        # (native libraries, Meta Graph). Missing `post_id` here made every
+        # Facebook item fall through to the content-hash below, so the primary
+        # dedup key tracked the post *text*: an edited or truncated post was
+        # re-ingested as new instead of being recognised as seen.
+        external_id = ScraperService._text(item, "external_id", "id", "post_id", "shortcode", "postId")
         if not external_id:
             external_id = sha256(f"{platform}:{post_url}:{content}".encode()).hexdigest()
         raw_metadata = dict(item)
         raw_metadata["source_url"] = source_url
-        media = item.get("media_urls") or item.get("media") or []
+        # Media key names vary per actor: `attachments` on scraper_one actors,
+        # `photos` on most Facebook page actors, plus `media`, `videos`,
+        # `images`, or the normalised `media_urls`. A single string is wrapped
+        # so one image does not iterate into characters, and a list of
+        # attachment objects is flattened to their URLs.
+        media: Any = (
+            item.get("media_urls")
+            or item.get("attachments")
+            or item.get("media")
+            or item.get("photos")
+            or item.get("images")
+            or []
+        )
         if isinstance(media, str):
             media = [media]
+        elif isinstance(media, Mapping):
+            # Some actors return one media object rather than a list.
+            media = [media.get("url") or media.get("picture")] if (
+                media.get("url") or media.get("picture")
+            ) else []
+        elif isinstance(media, (list, tuple)):
+            media = [
+                entry
+                for entry in (
+                    (m.get("url") or m.get("picture")) if isinstance(m, Mapping) else m
+                    for m in media
+                )
+                if entry
+            ]
+        else:
+            media = []
         thumbnail = item.get("thumbnail")
         if thumbnail and thumbnail not in media:
             media = [thumbnail, *media]
@@ -426,7 +463,7 @@ class ScraperService:
             "title": title[:1000],
             "content": content[:10000],
             "raw_text": content[:10000],
-            "author": ScraperService._text(item, "author", "username", "ownerUsername", default="Unknown"),
+            "author": ScraperService._author(item),
             "source_url": ScraperService._text(item, "source", "source_url", default=source_url),
             "source": ScraperService._text(item, "source", "source_url", default=source_url),
             "post_url": post_url[:1000],
@@ -445,15 +482,52 @@ class ScraperService:
         return default
 
     @staticmethod
+    def _author(item: Mapping[str, Any]) -> str:
+        """Resolve the author name across flat and nested actor shapes.
+
+        Most Facebook page actors return ``author`` as an object such as
+        ``{"name": "..."}`` or ``{"username": "..."}``. ``_text`` deliberately
+        skips dicts, so without this every such item was stored as "Unknown"
+        and lost its page attribution.
+        """
+        for key in ("author", "owner", "user", "page"):
+            value = item.get(key)
+            if isinstance(value, Mapping):
+                name = ScraperService._text(value, "name", "username", "title")
+                if name:
+                    return name
+                continue
+            if value is not None and not isinstance(value, (dict, list)):
+                text = str(value).strip()
+                if text:
+                    return text
+        return ScraperService._text(
+            item, "username", "ownerUsername", "pageName", default="Unknown"
+        )
+
+    @staticmethod
     def _parse_datetime(value: Any) -> datetime:
         if isinstance(value, datetime):
             return value.replace(tzinfo=None)
         if isinstance(value, (int, float)):
-            return datetime.fromtimestamp(value, timezone.utc).replace(tzinfo=None)
+            # Actors disagree on unit: some send Unix seconds, others Unix
+            # milliseconds (scraper_one Facebook posts send ms). A value too
+            # large to be a plausible second-count is reinterpreted as ms,
+            # otherwise fromtimestamp raises OSError [Errno 22] on Windows --
+            # which the caller caught per item, silently dropping every post
+            # in the batch and leaving a successful run with zero results.
+            seconds = float(value)
+            if abs(seconds) > 1e11:
+                seconds /= 1000.0
+            return datetime.fromtimestamp(seconds, timezone.utc).replace(tzinfo=None)
         if isinstance(value, str) and value:
+            text = value.strip()
             try:
-                return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+                return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
             except ValueError:
-                if len(value) == 8 and value.isdigit():
-                    return datetime.strptime(value, "%Y%m%d")
+                # A numeric epoch arrives as a string from several actors.
+                if text.isdigit():
+                    return ScraperService._parse_datetime(int(text))
+                if len(text) == 8:
+                    return datetime.strptime(text, "%Y%m%d")
         return datetime.now(timezone.utc)
