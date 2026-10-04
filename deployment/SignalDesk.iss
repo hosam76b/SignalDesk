@@ -15,7 +15,7 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\*"; DestDir: "{app}"; Excludes: ".git,.github,*.db,logs,__pycache__,.venv,venv,node_modules,releases,tests,frontend\.next,tools\nssm\nssm-2.24\src,tools\nssm\nssm-2.24\*.txt"; Flags: recursesubdirs createallsubdirs
+Source: "..\*"; DestDir: "{app}"; Excludes: ".git,.github,*.db,*.db-shm,*.db-wal,logs,__pycache__,.venv,venv,node_modules,releases,tests,test_*.py,innosetup-*.exe,frontend\.next,tools\nssm\nssm-2.24\src,tools\nssm\nssm-2.24\*.txt"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
 Name: "{group}\SignalDesk"; Filename: "http://127.0.0.1:8000"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
