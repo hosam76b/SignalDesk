@@ -16,8 +16,9 @@
 3. [إنشاء حزمة التثبيت SignalDesk_Setup.exe](#3-إنشاء-حزمة-التثبت-signaldesk_setupexe)
 4. [دليل المستخدم النهائي للتثبيت (End-User Installation Guide)](#4-دليل-المستخدم-النهائي-للتثبيت-end-user-installation-guide)
 5. [التحكم بالخدمة (Service Control)](#5-التحكم-بالخدمة-service-control)
-6. [إزالة التثبيت (Clean Uninstall)](#6-إزالة-التثبيت-clean-uninstall)
-7. [استكشاف الأخطاء وحلولها (Troubleshooting)](#7-استكشاف-الأخطاء-وحلولها-troubleshooting)
+6. [تطبيق شريط المهام (System Tray App)](#6-تطبيق-شريط-المهام-system-tray-app)
+7. [إزالة التثبيت (Clean Uninstall)](#7-إزالة-التثبيت-clean-uninstall)
+8. [استكشاف الأخطاء وحلولها (Troubleshooting)](#8-استكشاف-الأخطاء-وحلولها-troubleshooting)
 
 ---
 
@@ -39,11 +40,44 @@
 
 | الأداة | الإصدار | الغرض | ملاحظات |
 | :--- | :--- | :--- | :--- |
-| **Python** | `3.11` أو `3.12` | تشغيل الخادم (FastAPI) | يمكن الاعتماد على البيئة المضمنة `.venv` التي ينشئها المثبّت تلقائياً |
+| **Python** | `3.11` أو `3.12` فقط | تشغيل الخادم (FastAPI) | ⚠️ **لا تستخدم 3.13** — السبب في [تنبيه Python 3.13](#تنبيه-لا-تستخدم-python-313) |
 | **Node.js** | `18.x` أو `20.x` | بناء واجهة المستخدم | مطلوب **للمطوّر فقط** — الحزمة النهائية تحتوي `frontend/out` جاهزاً |
 | **Inno Setup** | `6.7.3` | بناء حزمة التثبيت | [https://jrsoftware.org/isinfo.php](https://jrsoftware.org/isinfo.php) |
 | **PostgreSQL** | `14` أو أحدث | قاعدة البيانات | مطلوب على جهاز التثبيت النهائي (يُنشئه `install-service.ps1`) |
 | **Git** | أحدث إصدار | استنساخ المستودع | مستودع عام، لا يحتاج حساب |
+
+### تنبيه: لا تستخدم Python 3.13
+
+يقوم `install-service.ps1` بإنشاء البيئة الافتراضية بـ **3.12 ثم 3.11 ثم 3.10** بهذا الترتيب، ويتجاهل 3.13 عمداً.
+
+السبب: حزمة **`numpy`** — وهي تبعية غير مباشرة عبر `opencv-python` و`easyocr` — **لا تنشر عجلات (wheels) جاهزة لـ Python 3.13**. وعندما لا يجد pip عجلة جاهزة، يلجأ إلى **البناء من المصدر**، وهذا يتطلب مترجم C/C++ (`cl` أو `clang`) غير مثبّت افتراضياً. النتيجة:
+
+```text
+error: metadata-generation-failed
+  × Encountered error while generating package metadata.
+  ╰─> numpy
+```
+
+والمشكلة الأخطر أن **pip يُلغي تثبيت كل الحزم دفعة واحدة**، فتبقى `.venv` شبه فارغة (تحتوي `pip` فقط)، وتفشل الخدمة عند التشغيل:
+
+```text
+C:\Program Files (x86)\SignalDesk\.venv\Scripts\python.exe: No module named uvicorn
+```
+
+وتعيد NSSM تشغيلها كل 5 ثوانٍ حتى تتعلّق حالة الخدمة في **`Paused`**، فيظهر عند المستخدم:
+
+```text
+ERR_CONNECTION_REFUSED
+```
+
+لذلك أضاف `install-service.ps1` بعد التثبيت **فحصاً صارماً** يُفشل التثبيت برسالة واضحة بدلاً من إنتاج خدمة معطوبة:
+
+```powershell
+& $python -c "import uvicorn, fastapi"
+```
+
+> ✅ **للتحقق من بيئة قائمة:** شغّل `.\.venv\Scripts\python.exe -m pip install -r requirements.txt` ثم `.\.venv\Scripts\python.exe -c "import uvicorn, fastapi"`.
+> 🌐 **الاتصال بالإنترنت مطلوب** لتنزيل العجلات من PyPI.
 
 ### روابط تنزيل الأدوات
 
@@ -107,8 +141,8 @@ cd signaldesk
 المشروع يعتمد `pip` (ملف `requirements.txt`). الخيار الموصى به باستخدام بيئة افتراضية معزولة:
 
 ```bash
-# إنشاء البيئة الافتراضية
-python -m venv .venv
+# إنشاء البيئة الافتراضية (بإصدار 3.11 أو 3.12)
+py -3.12 -m venv .venv
 
 # تفعيلها (Windows PowerShell)
 .\.venv\Scripts\Activate.ps1
@@ -119,7 +153,13 @@ pip install -r requirements.txt
 
 # (اختياري) متطلبات التطوير والاختبارات
 pip install -r requirements-dev.txt
+
+# التحقق من نجاح التثبيت
+python -c "import uvicorn, fastapi; print('OK')"
 ```
+
+> ⚠️ **استخدم `py -3.12` أو `py -3.11` صراحةً.** الأمر `py -3` قد يختار Python 3.13 وهو غير مدعوم بسبب numpy — راجع [تنبيه Python 3.13](#تنبيه-لا-تستخدم-python-313).
+> ✅ للتأكد: `python --version` يجب أن يعرض `3.11.x` أو `3.12.x`.
 
 > 💡 **بديل باستخدام `uv` (أسرع بكثير):**
 > ```bash
@@ -216,10 +256,27 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 بعد نجاح البناء:
 
 ```text
-📦 releases\SignalDesk_Setup.exe   ← حجم تقريبي ~2.6 ميغابايت
+📦 releases\SignalDesk_Setup.exe   ← الحجم النهائي: ~2.61 ميغابايت
 ```
 
-> ℹ️ حجم الحزمة النهائي يُستثنى منه تلقائيًا: ملفات `.git`، مجلد `tests`، مجلدات `node_modules`، الوسيط `frontend/.next`، مصدّر NSSM (يبقى `nssm.exe` فقط)، مثبّت Inno Setup نفسه، وقواعد البيانات المحلية.
+> ℹ️ للتحقق من الحجم الفعلي بعد أي بناء:
+> ```powershell
+> Get-Item .\releases\SignalDesk_Setup.exe | ForEach-Object { "{0:N2} MB" -f ($_.Length / 1MB) }
+> ```
+>
+> 📉 الهبوط من ~20.9 ميغابايت إلى ~2.61 ميغابايت ناتج عن ضبط قائمة `Excludes` في قسم `[Files]`:
+>
+> | ما تم استثناؤه | المساحة الموفّرة (قبل الضغط) |
+> | :--- | :--- |
+> | `innosetup-*.exe` (مثبّت Inno Setup نفسه كان في جذر المشروع) | ~10.1 MB |
+> | `frontend\.next` (وسيط البناء) | ~36.1 MB |
+> | `node_modules` | ~445 MB |
+> | `.git` | ~10.6 MB |
+> | `tests` و`test_*.py` | ~0.3 MB |
+> | `*.db` و`*.db-shm` و`*.db-wal` (قواعد SQLite المحلية) | متغيّر |
+> | `tools\nssm\nssm-2.24\src` (يبقى `nssm.exe` فقط) | ~0.4 MB |
+>
+> ✅ **لا تكرار في الاختصارات:** اختصارات سطح المكتب وقائمة ابدأ يملكها Inno Setup وحده عبر قسم `[Icons]`. وأُزيل إنشاء الاختصارات من `install-service.ps1` لأن الاثنين معاً كانا ينشئان نسختين على سطح المكتب (`.lnk` و`.url`).
 
 ### بنية حزمة التثبيت (ما بداخلها)
 
@@ -346,7 +403,72 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ---
 
-## 6. إزالة التثبيت (Clean Uninstall)
+## 6. تطبيق شريط المهام (System Tray App)
+
+أداة `SignalDesk Monitor` هي **إضافة اختيارية** تعيش في منطقة الإشعارات بجانب الساعة، وتوفّر وصولاً سريعاً إلى حالة الخدمة. وهي **ليست** جزءاً من الخدمة نفسها.
+
+### سلوك زر Exit
+
+> ⚠️ **مهم:** عند النقر على **Exit** من قائمة شريط المهام، يتم إغلاق **واجهة التحكم المصغرة فقط**، **دون** إيقاف خدمة `SignalDeskServer` الخلفية.
+>
+> الخادم يظل يعمل، ويظل النظام متاحاً على `http://127.0.0.1:8000`، ولا تتأثر أي عملية جارية (سحب، تحليل ذكاء اصطناعي، تقارير).
+>
+> لإيقاف الخدمة فعلياً، استخدم `Stop-Service SignalDeskServer` أو واجهة `services.msc` أو عنصر **Stop service** من نفس قائمة الأيقونة.
+
+### إعادة تشغيل الأيقونة يدوياً
+
+إذا أغلقت الأداة (أو لم تظهر بعد التثبيت) شغّلها من **PowerShell** أو **CMD**:
+
+```powershell
+wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
+```
+
+أو من موجه الأوامر:
+
+```cmd
+wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
+```
+
+> ℹ️ لا تظهر نافذة سوداء، لأن الأداة تعمل عبر `pythonw.exe`.
+> 🔍 السكربت يبحث عن Python بالترتيب: `.venv\Scripts\pythonw.exe` ← `venv\Scripts\pythonw.exe` ← **البحث في `PATH`**. إن لم يجد Python، يعرض رسالة توضيحية بدل الفشل الصامت.
+
+### التشغيل التلقائي مع بدء تشغيل ويندوز
+
+الأيقونة مسجَّلة تلقائياً في مجلد بدء التشغيل بواسطة `install-service.ps1`. ولإعادة إنشاء الاختصار يدوياً:
+
+1. افتح مجلد بدء التشغيل: اضغط **`Win + R`** واكتب:
+   ```text
+   shell:startup
+   ```
+2. أنشئ اختصاراً لملف `start_tray.vbs` داخل المجلد الذي فُتح:
+   ```text
+   C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs
+   ```
+3. اضبط خصائص الاختصار كما في الجدول أدناه لضمان عمله بشكل صحيح:
+
+**الإعداد الصحيح للاختصار:**
+
+| الحقل | القيمة |
+| :--- | :--- |
+| **Target** (الهدف) | `%SystemRoot%\System32\wscript.exe` |
+| **Arguments** (المعطيات) | `"C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"` |
+| **Start in** | `C:\Program Files (x86)\SignalDesk` |
+| **Icon** | `C:\Program Files (x86)\SignalDesk\assets\signaldesk-monitor.ico` |
+
+> أو الأسهل: شغّل سكربت التثبيت مرة أخرى بصلاحية مسؤول، فهو يُسجّل الاختصار في Startup تلقائياً.
+
+### استكشاف مشاكل شريط المهام
+
+| المشكلة | الحل |
+| :--- | :--- |
+| الأيقونة لا تظهر بعد تشغيل السكربت | افتح سهم **إظهار الأيقونات المخفية** بجانب ساعة النظام |
+| رسالة "SignalDesk Monitor needs Python" | ثبّت Python 3.11/3.12 على جهازك، أو شغّل `install-service.ps1` لإصلاح البيئة |
+| لا تعمل القائمة (الخدمة تعمل لكن لا استجابة) | شغّل PowerShell **بصلاحية مسؤول** — إجراءات الخدمة تتطلب صلاحية |
+| تظهر أيقونتان | أغلق الزائدة من قائمة **Exit** ثم شغّل نسخة واحدة فقط |
+
+---
+
+## 7. إزالة التثبيت (Clean Uninstall)
 
 ### الطريقة الموصى بها — إزالة التطبيقات من Windows
 
@@ -373,7 +495,7 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ---
 
-## 7. استكشاف الأخطاء وحلولها (Troubleshooting)
+## 8. استكشاف الأخطاء وحلولها (Troubleshooting)
 
 | المشكلة | الحل |
 | :--- | :--- |
@@ -383,6 +505,13 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 | المنفذ 8000 محجوب | غيّر المنفذ عبر `set-service-port.ps1`، أو أوقف العملية التي تستخدمه |
 | لا يظهر اختصار سطح المكتب | أنشئه يدويًا: افتح `http://127.0.0.1:8000` ← اسحب العنوان إلى سطح المكتب |
 | فشل `npm run build` عند التثبيت | يُتجاهل بأمان — `frontend/out` محزومة مسبقًا ويعمل النظام بدونها |
+| **الخدمة `Paused` + `ERR_CONNECTION_REFUSED`** | راجع `{app}\logs\service_stderr.log`. غالباً `No module named uvicorn` لأن `pip install` فشل — احذف `{app}\.venv` وأعد تشغيل `install-service.ps1` |
+| `error: metadata-generation-failed` / `numpy` | النظام يستخدم Python 3.13. احذف `{app}\.venv` وأعد التثبيت ليُنشئه السكربت بـ 3.11/3.12، أو ثبّت [Build Tools for Visual Studio](https://visualstudio.microsoft.com/downloads/) |
+| الخدمة تنهار كل 5 ثوانٍ | انظر صف `Paused` أعلاه — السبب دائماً بيئة Python ناقصة الحزم |
+| اختصاران على سطح المكتب | أحدهما متبقٍ من إصدار قديم. احذف `SignalDesk.lnk` واترك `SignalDesk.url` فقط |
+| `APIFY_FACEBOOK_ACTOR_INPUT` غير موجود في `.env.example` | المتغير معرّف في `config.py`؛ أضفه يدوياً إلى `.env` عند الحاجة |
+| رسالة "SignalDesk Monitor needs Python" | ثبّت Python 3.11/3.12 على جهاز المستخدم، أو شغّل `install-service.ps1` |
+| أيقونة شريط المهام لا تظهر | افتح سهم **إظهار الأيقونات المخفية**، أو شغّل `wscript "{app}\deployment\start_tray.vbs"` |
 
 ---
 

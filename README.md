@@ -12,7 +12,7 @@
 
 <br/>
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.104%2B-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black)](https://react.dev/)
@@ -177,7 +177,7 @@ flowchart TB
 ## 📋 المتطلبات الأساسية
 
 تأكد من توفر الأدوات التالية على نظامك قبل البدء:
-1. **Python:** الإصدار `3.10` أو `3.11` أو `3.12`.
+1. **Python:** الإصدار `3.11` أو `3.12`. ⚠️ **تجنّب `3.13`** — حزمة `numpy` لا تملك عجلات جاهزة له، فيلجأ pip للبناء من المصدر ويفشل التثبيت.
 2. **Node.js:** الإصدار `18.x` أو `20.x` مع مدير الحزم `npm` أو `pnpm`.
 3. **PostgreSQL:** الإصدار `14` أو أحدث (يمكن تشغيله محلياً أو عبر Docker).
 4. **(اختياري) Ollama:** في حال رغبتك بتشغيل الذكاء الاصطناعي محلياً دون اتصال خارجي.
@@ -345,7 +345,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 .\deployment\install-service.ps1
 ```
 
-يقوم المثبت تلقائيًا بإنشاء `.venv` عند الحاجة، تثبيت متطلبات Python، بناء الواجهة، تثبيت خدمة `SignalDeskServer` على المنفذ `8000`، إضافة قاعدة جدار الحماية، وإنشاء اختصار `SignalDesk.lnk` على سطح المكتب يفتح الواجهة على `http://127.0.0.1:8000`.
+يقوم المثبت تلقائيًا بإنشاء `.venv` (Python 3.11/3.12) عند الحاجة، تثبيت متطلبات Python، بناء الواجهة، تثبيت خدمة `SignalDeskServer` على المنفذ `8000`، إضافة قاعدة جدار الحماية، وإنشاء **اختصار واحد** على سطح المكتب (`SignalDesk.url`) يفتح الواجهة على `http://127.0.0.1:8000`، وتسجيل اختصار أداة المراقبة في مجلد بدء التشغيل.
 
 ### 🔎 أداة المراقبة في شريط المهام (اختيارية)
 
@@ -355,7 +355,10 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy RemoteSigned
 wscript.exe .\deployment\start_tray.vbs
 ```
 
-> ⚠️ **تتطلب Python على جهازك:** الأداة تعمل عبر `.venv\Scripts\python.exe` ولا تُنشأ لها اختصارات تلقائية anymore لأن حزمة التثبيت لا تحزّم Python. عند تشغيلها ستظهر في منطقة الإشعارات بجانب الساعة؛ إن كانت مخفية افتح سهم **إظهار الأيقونات المخفية**.
+> ⚠️ **تتطلب Python على جهازك:** الأداة تعمل عبر `.venv\Scripts\pythonw.exe`. بعد تثبيت النظام، يسجّل `install-service.ps1` اختصاراً لها في مجلد بدء التشغيل (`Win + R` ← `shell:startup`) فتعمل تلقائياً. إن كانت الأيقونة مخفية افتح سهم **إظهار الأيقونات المخفية**. لإعادة إظهارها يدوياً:
+> ```powershell
+> wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
+> ```
 
 توفر قائمة النقر الخيارات التالية:
 
@@ -412,7 +415,7 @@ python -m uvicorn main:app --host 127.0.0.1 --port 8000
 
 ### بناء حزمة التثبيت `SignalDesk_Setup.exe`
 
-**المتطلبات:** Windows 10/11 أو Server 2016+ (64-bit) · Python 3.11+ · Node.js 18/20 · [Inno Setup 6.7.3](https://jrsoftware.org/isinfo.php) · [Apify Token](https://console.apify.com) (لمحرك الكشط).
+**المتطلبات:** Windows 10/11 أو Server 2016+ (64-bit) · Python `3.11` أو `3.12` (وليس 3.13) · Node.js 18/20 · [Inno Setup 6.7.3](https://jrsoftware.org/isinfo.php) · [Apify Token](https://console.apify.com) (لمحرك الكشط).
 
 ```powershell
 # 1) استنساخ المستودع
@@ -447,10 +450,18 @@ copy .env.example .env
 
 شغّل `SignalDesk_Setup.exe` **برتبة مسؤول (Administrator)**، ثم يقوم المُثبِّت تلقائياً بـ:
 
-1. إنشاء بيئة Python داخل مجلد التثبيت وتثبيت الاعتماديات.
+1. إنشاء بيئة Python **3.11/3.12** داخل مجلد التثبيت وتثبيت الاعتماديات (متجنّباً Python 3.13 لأسباب توافق numpy).
 2. تسجيل خدمة Windows باسم **`SignalDeskServer`** تعمل تلقائياً عند بدء الجهاز على المنفذ `8000`.
 3. إضافة قاعدة جدار حماية للسماح بالدخول على المنفذ `8000`.
-4. إنشاء اختصار **سطح المكتب** و**قائمة ابدأ** يفتح الواجهة على [http://127.0.0.1:8000](http://127.0.0.1:8000).
+4. إنشاء اختصار **سطح المكتب** و**قائمة ابدأ** يفتح الواجهة على [http://127.0.0.1:8000](http://127.0.0.1:8000) — **اختصار واحد فقط** بلا تكرار.
+5. تسجيل اختصار `SignalDesk Monitor` في مجلد بدء التشغيل لإقلاع أيقونة شريط المهام تلقائياً.
+
+> 💡 **أغلقتَ أيقونة شريط المهام بالخطأ؟** أعِد إظهارها في أي وقت:
+> ```powershell
+> wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
+> ```
+> ملاحظة: الضغط على **Exit** من قائمة الأيقونة يغلق الواجهة المصغّرة فقط، ولا يوقف خدمة `SignalDeskServer`.
+> التفاصيل في [دليل التثبيت — قسم تطبيق شريط المهام](INSTALLATION.md#6-تطبيق-شريط-المهام-system-tray-app).
 
 ### التحكم بالخدمة
 
