@@ -24,7 +24,6 @@ if (-not $virtualEnvironment) {
 $python = $virtualEnvironment
 $logs = Join-Path $projectRoot "logs"
 $frontend = Join-Path $projectRoot "frontend"
-$trayLauncher = Join-Path $projectRoot "deployment\start_tray.vbs"
 $trayIcon = Join-Path $projectRoot "assets\signaldesk-monitor.ico"
 
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -82,25 +81,9 @@ New-NetFirewallRule -DisplayName "SignalDesk Server Access" -Direction Inbound -
 $desktop = [Environment]::GetFolderPath("Desktop")
 $shell = New-Object -ComObject WScript.Shell
 $shortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk.lnk"))
-$shortcut.TargetPath = "msedge.exe"
-$shortcut.Arguments = "--app=http://127.0.0.1:8000 --window-size=1440,900"
+$shortcut.TargetPath = "http://127.0.0.1:8000"
 $shortcut.WorkingDirectory = $projectRoot
 $shortcut.IconLocation = "$trayIcon,0"
 $shortcut.Save()
-
-$trayShortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk Monitor.lnk"))
-$trayShortcut.TargetPath = "wscript.exe"
-$trayShortcut.Arguments = "`"$trayLauncher`""
-$trayShortcut.WorkingDirectory = $projectRoot
-$trayShortcut.IconLocation = "$trayIcon,0"
-$trayShortcut.Save()
-
-$startup = [Environment]::GetFolderPath("Startup")
-$startupTrayShortcut = $shell.CreateShortcut((Join-Path $startup "SignalDesk Monitor.lnk"))
-$startupTrayShortcut.TargetPath = "wscript.exe"
-$startupTrayShortcut.Arguments = "`"$trayLauncher`""
-$startupTrayShortcut.WorkingDirectory = $projectRoot
-$startupTrayShortcut.IconLocation = "$trayIcon,0"
-$startupTrayShortcut.Save()
 
 Write-Host "SignalDeskServer is installed and running. Open http://localhost:8000 or http://<SERVER_IP>:8000"

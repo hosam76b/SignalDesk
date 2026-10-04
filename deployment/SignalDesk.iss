@@ -15,13 +15,11 @@ PrivilegesRequired=admin
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-Source: "..\*"; DestDir: "{app}"; Excludes: ".git,*.db,logs,__pycache__,.venv,venv,node_modules,frontend\node_modules"; Flags: recursesubdirs createallsubdirs
+Source: "..\*"; DestDir: "{app}"; Excludes: ".git,.github,*.db,logs,__pycache__,.venv,venv,node_modules,releases,tests,frontend\.next,tools\nssm\nssm-2.24\src,tools\nssm\nssm-2.24\*.txt"; Flags: recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\SignalDesk"; Filename: "msedge.exe"; Parameters: "--app=http://127.0.0.1:8000 --window-size=1440,900"; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
-Name: "{group}\SignalDesk Monitor"; Filename: "wscript.exe"; Parameters: """{app}\deployment\start_tray.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
-Name: "{commondesktop}\SignalDesk"; Filename: "msedge.exe"; Parameters: "--app=http://127.0.0.1:8000 --window-size=1440,900"; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
-Name: "{commondesktop}\SignalDesk Monitor"; Filename: "wscript.exe"; Parameters: """{app}\deployment\start_tray.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
+Name: "{group}\SignalDesk"; Filename: "http://127.0.0.1:8000"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
+Name: "{autodesktop}\SignalDesk"; Filename: "http://127.0.0.1:8000"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\deployment\install-service.ps1"""; WorkingDir: "{app}"; Flags: runascurrentuser waituntilterminated
