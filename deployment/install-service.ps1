@@ -48,8 +48,31 @@ if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCOD
 & $python -c "import uvicorn, fastapi"
 if ($LASTEXITCODE -ne 0) { throw "The virtual environment at $python is missing uvicorn/fastapi. Delete it and rerun this script to rebuild it." }
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
-Push-Location $frontend
-try { & npm.cmd run build } finally { Pop-Location }
+
+# Rebuilding the frontend is a developer convenience, never a requirement. The
+# production package ships a pre-built frontend/out, so on an end-user machine
+# there is no npm, no Node, and nothing to build. Skip it silently instead of
+# letting a missing tool abort the install, which is what a bare
+# `& npm.cmd run build` would do under $ErrorActionPreference = "Stop".
+$frontendOut = Join-Path $frontend "out"
+$frontendBundle = Join-Path $frontendOut "index.html"
+if (Test-Path $frontendBundle) {
+    Write-Host "Frontend build already present at $frontendBundle - skipping npm build."
+} else {
+    $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
+    if (-not $npm) { $npm = Get-Command "npm" -ErrorAction SilentlyContinue }
+    if (-not $npm) {
+        Write-Warning "npm was not found on this machine and $frontendOut is missing, so the web UI cannot be built. The API service still installs and runs."
+    } else {
+        Push-Location $frontend
+        try { & $npm.Path run build } finally { Pop-Location }
+        if (Test-Path $frontendBundle) {
+            Write-Host "Frontend built to $frontendBundle."
+        } else {
+            Write-Warning "npm build finished without producing $frontendBundle. The API service still installs and runs."
+        }
+    }
+}
 
 if (-not $NssmPath) {
     $nssmDirectory = Join-Path $projectRoot "tools\nssm"
