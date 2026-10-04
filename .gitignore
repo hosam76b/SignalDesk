@@ -33,6 +33,12 @@ media_uploads/
 storage/
 releases/
 
+# Vendored build-tool installers. Dropping the Inno Setup installer in the repo
+# root is convenient, but it would also be swept into the setup package by the
+# "..\*" file glob in SignalDesk.iss.
+innosetup-*.exe
+*.iss.exe
+
 # Node / Next.js
 frontend/node_modules/
 frontend/.next/
