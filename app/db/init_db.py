@@ -269,18 +269,23 @@ def migrate_topic_schema():
 
         if connection.dialect.name == "postgresql":
             for table in ("monitored_sources", "keywords", "posts"):
-                if table in existing_tables:
-                    foreign_keys = inspect(connection).get_foreign_keys(table)
-                    has_topic_fk = any(
-                        fk.get("referred_table") == "topics" and "topic_id" in fk.get("constrained_columns", [])
-                        for fk in foreign_keys
-                    )
-                    if not has_topic_fk:
-                        connection.execute(text(
-                            f"ALTER TABLE {table} ADD CONSTRAINT fk_{table}_topic_id "
-                            "FOREIGN KEY (topic_id) REFERENCES topics(id)"
-                        ))
-                    connection.execute(text(f"ALTER TABLE {table} ALTER COLUMN topic_id SET NOT NULL"))
+                if table not in existing_tables:
+                    continue
+                table_columns = {column["name"] for column in inspect(connection).get_columns(table)}
+                if "topic_id" not in table_columns:
+                    logger.debug("Skipping topic_id FK/NOT NULL for %s: column does not exist", table)
+                    continue
+                foreign_keys = inspect(connection).get_foreign_keys(table)
+                has_topic_fk = any(
+                    fk.get("referred_table") == "topics" and "topic_id" in fk.get("constrained_columns", [])
+                    for fk in foreign_keys
+                )
+                if not has_topic_fk:
+                    connection.execute(text(
+                        f"ALTER TABLE {table} ADD CONSTRAINT fk_{table}_topic_id "
+                        "FOREIGN KEY (topic_id) REFERENCES topics(id)"
+                    ))
+                connection.execute(text(f"ALTER TABLE {table} ALTER COLUMN topic_id SET NOT NULL"))
 
     logger.info("Topic schema migration and legacy backfill complete")
 
