@@ -11,19 +11,29 @@ $virtualEnvironment = @(".venv", "venv") |
     Where-Object { Test-Path $_ } |
     Select-Object -First 1
 if (-not $virtualEnvironment) {
-    $bootstrapPython = Get-Command py -ErrorAction SilentlyContinue
-    if ($bootstrapPython) {
-        & py -3 -m venv (Join-Path $projectRoot ".venv")
-    } else {
-        $bootstrapPython = Get-Command python -ErrorAction SilentlyContinue
-        if (-not $bootstrapPython) { throw "Python 3.10 or newer is required. Install Python, then rerun this script." }
-        & python -m venv (Join-Path $projectRoot ".venv")
+    # Wheels for the transitive scientific stack (numpy via opencv/easyocr and
+    # friends) are not published for 3.13 yet, so pinning the newest interpreter
+    # turns `pip install` into a source build that needs a C compiler. Pick the
+    # newest version that actually has wheels.
+    $venvPath = Join-Path $projectRoot ".venv"
+    $created = $false
+    if (Get-Command py -ErrorAction SilentlyContinue) {
+        foreach ($version in @("3.12", "3.11", "3.10")) {
+            & py "-$version" -m venv $venvPath
+            if (Test-Path (Join-Path $venvPath "Scripts\python.exe")) { $created = $true; break }
+        }
     }
-    $virtualEnvironment = Join-Path $projectRoot ".venv\Scripts\python.exe"
+    if (-not $created) {
+        $bootstrapPython = Get-Command python -ErrorAction SilentlyContinue
+        if (-not $bootstrapPython) { throw "Python 3.10, 3.11 or 3.12 is required. Install Python, then rerun this script." }
+        & python -m venv $venvPath
+    }
+    $virtualEnvironment = Join-Path $venvPath "Scripts\python.exe"
 }
 $python = $virtualEnvironment
 $logs = Join-Path $projectRoot "logs"
 $frontend = Join-Path $projectRoot "frontend"
+$trayLauncher = Join-Path $projectRoot "deployment\start_tray.vbs"
 $trayIcon = Join-Path $projectRoot "assets\signaldesk-monitor.ico"
 
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -32,7 +42,11 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 if (-not $python) { throw "No virtual environment Python found. Expected .venv\Scripts\python.exe or venv\Scripts\python.exe." }
 
 & $python -m ensurepip --upgrade
+& $python -m pip install --upgrade pip
 & $python -m pip install -r (Join-Path $projectRoot "requirements.txt")
+if ($LASTEXITCODE -ne 0) { throw "pip install failed with exit code $LASTEXITCODE. Check Internet access and rerun this script." }
+& $python -c "import uvicorn, fastapi"
+if ($LASTEXITCODE -ne 0) { throw "The virtual environment at $python is missing uvicorn/fastapi. Delete it and rerun this script to rebuild it." }
 New-Item -ItemType Directory -Force -Path $logs | Out-Null
 Push-Location $frontend
 try { & npm.cmd run build } finally { Pop-Location }
@@ -78,12 +92,20 @@ Get-NetFirewallRule -DisplayName "SignalDesk Server Access" -ErrorAction Silentl
 New-NetFirewallRule -DisplayName "SignalDesk Server Access" -Direction Inbound -LocalPort $port -Protocol TCP -Action Allow | Out-Null
 & $NssmPath start $ServiceName
 
-$desktop = [Environment]::GetFolderPath("Desktop")
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut((Join-Path $desktop "SignalDesk.lnk"))
-$shortcut.TargetPath = "http://127.0.0.1:8000"
-$shortcut.WorkingDirectory = $projectRoot
-$shortcut.IconLocation = "$trayIcon,0"
-$shortcut.Save()
+# The desktop and Start Menu shortcuts are owned by the Inno Setup [Icons]
+# section, so they are not recreated here. Only the tray monitor is started
+# with the user session, because it is a per-user convenience and not part of
+# the installation itself.
+if (Test-Path $trayLauncher) {
+    $shell = New-Object -ComObject WScript.Shell
+    $startup = [Environment]::GetFolderPath("Startup")
+    $trayShortcut = $shell.CreateShortcut((Join-Path $startup "SignalDesk Monitor.lnk"))
+    $trayShortcut.TargetPath = "$env:SystemRoot\System32\wscript.exe"
+    $trayShortcut.Arguments = "`"$trayLauncher`""
+    $trayShortcut.WorkingDirectory = $projectRoot
+    $trayShortcut.IconLocation = "$trayIcon,0"
+    $trayShortcut.Save()
+    Write-Host "Tray monitor registered in the Startup folder."
+}
 
 Write-Host "SignalDeskServer is installed and running. Open http://localhost:8000 or http://<SERVER_IP>:8000"
