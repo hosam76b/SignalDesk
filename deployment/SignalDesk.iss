@@ -20,6 +20,11 @@ Source: "..\*"; DestDir: "{app}"; Excludes: ".git,.github,*.db,*.db-shm,*.db-wal
 [Icons]
 Name: "{group}\SignalDesk"; Filename: "http://127.0.0.1:8000"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
 Name: "{autodesktop}\SignalDesk"; Filename: "http://127.0.0.1:8000"; IconFilename: "{app}\assets\signaldesk-monitor.ico"
+; Tray monitor: start_tray.vbs is launched through wscript.exe (never a console
+; window) so the icon can be brought back from the Start Menu after it was
+; closed, and it starts automatically with Windows.
+Name: "{group}\SignalDesk Tray Monitor"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\deployment\start_tray.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"; Comment: "Reopen the SignalDesk tray monitor"
+Name: "{autostartup}\SignalDesk Tray Monitor"; Filename: "{sys}\wscript.exe"; Parameters: """{app}\deployment\start_tray.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\assets\signaldesk-monitor.ico"; Comment: "Start the SignalDesk tray monitor with Windows"
 
 [Run]
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\deployment\install-service.ps1"""; WorkingDir: "{app}"; Flags: runascurrentuser waituntilterminated

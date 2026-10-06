@@ -333,9 +333,10 @@ SignalDesk_Setup.exe
    - سجلات منفصلة في `{app}\logs\service_stdout.log` و`service_stderr.log`.
 5. **قاعدة جدار الحماية:** ينشئ قاعدة `SignalDesk Server Access` للسماح بالدخول على المنفذ `8000`.
 6. **تشغيل الخدمة** والتحقق من صحة `/health`.
-7. **إنشاء اختصارات مباشرة** تفتح الواجهة على [http://127.0.0.1:8000](http://127.0.0.1:8000):
-   - اختصار `SignalDesk` على **سطح المكتب**.
-   - اختصار `SignalDesk` في **قائمة ابدأ** (Program Group).
+7. **إنشاء الاختصارات** (عبر قسم `[Icons]` في `SignalDesk.iss` — وليس بواسطة `install-service.ps1`):
+   - اختصار `SignalDesk` يفتح الواجهة على [http://127.0.0.1:8000](http://127.0.0.1:8000) على **سطح المكتب** وفي **قائمة ابدأ**.
+   - اختصار `SignalDesk Tray Monitor` في **قائمة ابدأ** لإعادة إظهار أيقونة شريط المهام.
+   - اختصار `SignalDesk Tray Monitor` في **مجلد بدء التشغيل** ليبدأ مع ويندوز.
 
 ### الخطوة 3 — التحقق من نجاح التثبيت
 
@@ -417,7 +418,9 @@ Invoke-RestMethod http://127.0.0.1:8000/health
 
 ### إعادة تشغيل الأيقونة يدوياً
 
-إذا أغلقت الأداة (أو لم تظهر بعد التثبيت) شغّلها من **PowerShell** أو **CMD**:
+> 🚀 **الطريقة الأسهل (بعد التثبيت):** اختصار **`SignalDesk Tray Monitor`** في **قائمة ابدأ** — انقر عليه لإعادة إظهار أيقونة الشريط فوراً. (أُضيف ضمن قسم `[Icons]` في `SignalDesk.iss`.)
+
+وإن فضّلت السطر الأوامر، شغّل من **PowerShell** أو **CMD**:
 
 ```powershell
 wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
@@ -434,7 +437,14 @@ wscript "C:\Program Files (x86)\SignalDesk\deployment\start_tray.vbs"
 
 ### التشغيل التلقائي مع بدء تشغيل ويندوز
 
-الأيقونة مسجَّلة تلقائياً في مجلد بدء التشغيل بواسطة `install-service.ps1`. ولإعادة إنشاء الاختصار يدوياً:
+المثبّت `SignalDesk_Setup.exe` ينشئ الاختصار تلقائياً في مجلد بدء التشغيل عبر قسم `[Icons]` في `SignalDesk.iss`:
+
+| الاختصار | الموقع |
+| :--- | :--- |
+| **SignalDesk Tray Monitor** | قائمة ابدأ → `{group}` (لإعادة إظهار الأيقونة) |
+| **SignalDesk Tray Monitor** | مجلد بدء التشغيل → `{autostartup}` (يبدأ مع ويندوز) |
+
+ولإعادة إنشاء اختصار بدء التشغيل يدوياً:
 
 1. افتح مجلد بدء التشغيل: اضغط **`Win + R`** واكتب:
    ```text
