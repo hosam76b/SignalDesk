@@ -51,13 +51,15 @@ New-Item -ItemType Directory -Force -Path $logs | Out-Null
 
 # Rebuilding the frontend is a developer convenience, never a requirement. The
 # production package ships a pre-built frontend/out, so on an end-user machine
-# there is no npm, no Node, and nothing to build. Skip it silently instead of
-# letting a missing tool abort the install, which is what a bare
-# `& npm.cmd run build` would do under $ErrorActionPreference = "Stop".
+# there is no npm, no Node, and nothing to build. Two guards decide whether to
+# build: the bundle already being present (it ships with the installer), and
+# npm actually being installed. Both skip silently instead of raising an
+# exception, which is what a bare `& npm.cmd run build` would do under
+# $ErrorActionPreference = "Stop" on a host without Node.
 $frontendOut = Join-Path $frontend "out"
 $frontendBundle = Join-Path $frontendOut "index.html"
-if (Test-Path $frontendBundle) {
-    Write-Host "Frontend build already present at $frontendBundle - skipping npm build."
+if (Test-Path $frontendOut) {
+    Write-Host "Frontend build already present at $frontendOut - skipping npm build."
 } else {
     $npm = Get-Command "npm.cmd" -ErrorAction SilentlyContinue
     if (-not $npm) { $npm = Get-Command "npm" -ErrorAction SilentlyContinue }
